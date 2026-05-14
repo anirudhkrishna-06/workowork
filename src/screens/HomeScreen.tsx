@@ -1,11 +1,12 @@
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
   Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -56,11 +57,53 @@ function statusConfig(status?: AiAnalysisStatus): { label: string; dotColor: str
   }
 }
 
+// Use local date (YYYY-MM-DD) to avoid UTC offset issues when grouping by day
+function localDateKey(dateInput: Date | string) {
+  const d = typeof dateInput === 'string' ? new Date(dateInput) : dateInput;
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 export default function HomeScreen({ navigation }: Props) {
   const { profile, session, signOut } = useAuth();
   const [logs, setLogs] = useState<DailyLogWithAnalysis[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Calendar selection state (YYYY-MM-DD) — null means no filter
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+
+  // Build a simple last-30-days array for the calendar heatmap
+  const days = useMemo(() => {
+    const out: Date[] = [];
+    const today = new Date();
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(today.getDate() - i);
+      out.push(d);
+    }
+    return out;
+  }, []);
+
+  // Map of date (YYYY-MM-DD) => count of logs that day
+  const countsByDate = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const l of logs) {
+      const key = localDateKey(l.created_at);
+      map.set(key, (map.get(key) || 0) + 1);
+    }
+    return map;
+  }, [logs]);
+
+  const maxCount = useMemo(() => Math.max(1, ...Array.from(countsByDate.values(), (v) => v || 0)), [countsByDate]);
+
+  // Logs to display in the FlatList (filtered by selectedDate when present)
+  const displayedLogs = useMemo(() => {
+    if (!selectedDate) return logs;
+    return logs.filter((l) => localDateKey(l.created_at) === selectedDate);
+  }, [logs, selectedDate]);
 
   const loadLogs = useCallback(async () => {
     if (!session?.user.id) return;
@@ -103,11 +146,43 @@ export default function HomeScreen({ navigation }: Props) {
     latestCompletedAnalysis?.professional_summary ||
     null;
 
+  // Build month list (past 12 months, newest last for natural scrolling)
+  const months = useMemo(() => {
+    const out: { year: number; month: number; label: string }[] = [];
+    const today = new Date();
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+      out.push({ year: d.getFullYear(), month: d.getMonth(), label: d.toLocaleString(undefined, { month: 'short', year: 'numeric' }) });
+    }
+    return out;
+  }, []);
+
+  function getMonthMatrix(year: number, month: number) {
+    const first = new Date(year, month, 1);
+    const last = new Date(year, month + 1, 0);
+    const matrix: (Date | null)[][] = [];
+    let week: (Date | null)[] = [];
+    // fill initial blanks
+    for (let i = 0; i < first.getDay(); i++) week.push(null);
+    for (let d = 1; d <= last.getDate(); d++) {
+      week.push(new Date(year, month, d));
+      if (week.length === 7) {
+        matrix.push(week);
+        week = [];
+      }
+    }
+    if (week.length) {
+      while (week.length < 7) week.push(null);
+      matrix.push(week);
+    }
+    return matrix;
+  }
+
   return (
     <View style={styles.container}>
       <FlatList
         contentContainerStyle={styles.scrollContent}
-        data={logs}
+        data={displayedLogs}
         keyExtractor={(item) => item.id}
         refreshControl={
           <RefreshControl
@@ -154,18 +229,7 @@ export default function HomeScreen({ navigation }: Props) {
               </View>
             </View>
 
-            {/* ── Insight Panel ── */}
-            <View style={styles.insightCard}>
-              <View style={styles.insightHeader}>
-                <View style={styles.insightAccentLine} />
-                <Text style={styles.insightLabel}>Reflection</Text>
-              </View>
-              <Text style={styles.insightText}>
-                {logs.length
-                  ? latestInsight || 'Your reflections are still being processed. Check back shortly.'
-                  : 'Begin logging your work to surface patterns and insights over time.'}
-              </Text>
-            </View>
+            {/* Insight panel moved below timeline; hidden initially */}
 
             {/* ── Primary CTA ── */}
             <Pressable
@@ -183,11 +247,70 @@ export default function HomeScreen({ navigation }: Props) {
               <Text style={styles.dashboardButtonText}>View Dashboard</Text>
             </Pressable>
 
+                {/* ── Horizontal monthly calendar (past 12 months) ── */}
+                {logs.length > 0 && (
+                  <View style={styles.calendarWrap}>
+                    <Text style={styles.calendarLabel}>Calendar</Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.monthsRow}>
+                      {months.map((m) => {
+                        const matrix = getMonthMatrix(m.year, m.month);
+                        return (
+                          <View key={`${m.year}-${m.month}`} style={styles.monthBlock}>
+                            <Text style={styles.monthLabel}>{m.label}</Text>
+                            <View style={styles.monthGrid}>
+                              {matrix.map((week, wi) => (
+                                <View key={wi} style={styles.weekRow}>
+                                  {week.map((d, di) => {
+                                    if (!d) return <View key={di} style={styles.dayEmpty} />;
+                                    const key = localDateKey(d);
+                                    const count = countsByDate.get(key) || 0;
+                                    const intensity = Math.min(1, count / maxCount);
+                                    const bg = count ? `rgba(232,216,112,${0.12 + intensity * 0.7})` : 'transparent';
+                                    const isSelected = selectedDate === key;
+                                    return (
+                                      <Pressable
+                                        key={key}
+                                        onPress={() => setSelectedDate(isSelected ? null : key)}
+                                        style={({ pressed }) => [
+                                          styles.daySquare,
+                                          { backgroundColor: bg },
+                                          isSelected && styles.daySelected,
+                                          pressed && styles.dayPressed,
+                                        ]}
+                                      >
+                                        <Text style={styles.dayLabel}>{d.getDate()}</Text>
+                                      </Pressable>
+                                    );
+                                  })}
+                                </View>
+                              ))}
+                            </View>
+                          </View>
+                        );
+                      })}
+                    </ScrollView>
+                  </View>
+                )}
+
             {/* ── Section header ── */}
             {logs.length > 0 && (
               <View style={styles.sectionHeaderRow}>
                 <Text style={styles.sectionTitle}>Timeline</Text>
                 <View style={styles.sectionDivider} />
+              </View>
+            )}
+            {/* Insight card appears below the timeline when a date is selected */}
+            {selectedDate && (
+              <View style={styles.insightCard}>
+                <View style={styles.insightHeader}>
+                  <View style={styles.insightAccentLine} />
+                  <Text style={styles.insightLabel}>Reflection</Text>
+                </View>
+                <Text style={styles.insightText}>
+                  {displayedLogs.length
+                    ? latestInsight || 'Selected day reflections.'
+                    : 'No logs for this day.'}
+                </Text>
               </View>
             )}
           </>
@@ -220,6 +343,9 @@ export default function HomeScreen({ navigation }: Props) {
                 </View>
 
                 {/* Summary */}
+                {selectedDate && (
+                  <Text style={styles.logNumber}>Log {index + 1}</Text>
+                )}
                 <Text numberOfLines={2} style={[styles.cardSummary, !summaryText && styles.cardSummaryFallback]}>
                   {summaryText || taskText}
                 </Text>
@@ -410,7 +536,7 @@ const styles = StyleSheet.create({
     borderRadius: 32,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 18,
+    paddingVertical: 16,
   },
   addButtonPressed: {
     backgroundColor: '#2A2A28',
@@ -570,6 +696,73 @@ const styles = StyleSheet.create({
     marginHorizontal: 4,
   },
 
+  // Calendar
+  calendarWrap: {
+    marginHorizontal: 24,
+    marginTop: 18,
+    marginBottom: 6,
+  },
+  calendarLabel: {
+    fontSize: 11,
+    color: MUTED,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+    marginBottom: 8,
+  },
+  calendarRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  monthsRow: {
+    paddingVertical: 4,
+    paddingRight: 12,
+    alignItems: 'flex-start',
+  },
+  monthBlock: {
+    marginRight: 16,
+    alignItems: 'center',
+  },
+  monthLabel: {
+    fontSize: 11,
+    color: MUTED,
+    marginBottom: 6,
+    fontWeight: '600',
+  },
+  monthGrid: {
+    flexDirection: 'column',
+    gap: 6,
+  },
+  weekRow: {
+    flexDirection: 'row',
+    gap: 6,
+    marginBottom: 6,
+  },
+  dayEmpty: {
+    width: 36,
+    height: 36,
+  },
+  daySquare: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  dayLabel: {
+    fontSize: 12,
+    color: INK,
+    fontWeight: '700',
+  },
+  daySelected: {
+    borderColor: INK,
+    borderWidth: 2,
+  },
+  dayPressed: {
+    opacity: 0.8,
+  },
+
   // ── Empty state
   emptyState: {
     alignItems: 'center',
@@ -594,6 +787,13 @@ const styles = StyleSheet.create({
     color: MUTED,
     textAlign: 'center',
     lineHeight: 22,
+  },
+
+  logNumber: {
+    fontSize: 12,
+    color: MUTED,
+    fontWeight: '700',
+    marginBottom: 6,
   },
 
   // ── Loading

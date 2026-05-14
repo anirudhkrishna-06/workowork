@@ -50,38 +50,49 @@ function PillScore({
   value,
   onChange,
   hint,
+  max = 10,
+  displayValues,
+  rounded,
 }: {
   label: string;
   value: number;
   onChange: (v: number) => void;
   hint?: string;
+  max?: number;
+  displayValues?: string[];
+  rounded?: boolean;
 }) {
-  const pills = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+  const pills = Array.from({ length: max }, (_, i) => i + 1);
+  const isEmoji = !!displayValues;
 
   return (
     <View style={scoreStyles.block}>
       <View style={scoreStyles.header}>
         <Text style={scoreStyles.label}>{label}</Text>
         <View style={scoreStyles.valuePill}>
-          <Text style={scoreStyles.valueText}>{value}</Text>
+          <Text style={scoreStyles.valueText}>{displayValues?.[value - 1] ?? value}</Text>
         </View>
       </View>
       {hint && <Text style={scoreStyles.hint}>{hint}</Text>}
       <View style={scoreStyles.pillRow}>
         {pills.map((n) => {
-          const active = n <= value;
+          const active = isEmoji ? n === value : n <= value;
+          const basePillStyle = isEmoji ? scoreStyles.emojiPill : (rounded ? scoreStyles.roundPill : scoreStyles.pill);
+          const textStyle = isEmoji ? scoreStyles.emojiPillText : scoreStyles.pillText;
+          const activeStyle = isEmoji ? scoreStyles.emojiPillActive : scoreStyles.pillActive;
+          const inactiveStyle = isEmoji ? scoreStyles.emojiPillInactive : scoreStyles.pillInactive;
           return (
             <Pressable
               key={n}
               onPress={() => onChange(n)}
               style={({ pressed }) => [
-                scoreStyles.pill,
-                active ? scoreStyles.pillActive : scoreStyles.pillInactive,
+                basePillStyle,
+                active ? activeStyle : inactiveStyle,
                 pressed && scoreStyles.pillPressed,
               ]}
             >
-              <Text style={[scoreStyles.pillText, active ? scoreStyles.pillTextActive : scoreStyles.pillTextInactive]}>
-                {n}
+              <Text style={[textStyle, active ? scoreStyles.pillTextActive : scoreStyles.pillTextInactive]}>
+                {displayValues?.[n - 1] ?? n}
               </Text>
             </Pressable>
           );
@@ -105,7 +116,7 @@ const scoreStyles = StyleSheet.create({
     alignItems: 'center',
   },
   valueText: { color: tokens.primary, fontSize: 12, fontWeight: '800' },
-  pillRow: { flexDirection: 'row', gap: 5 },
+  pillRow: { flexDirection: 'row', gap: 15 },
   pill: {
     flex: 1,
     height: 32,
@@ -113,10 +124,33 @@ const scoreStyles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  roundPill: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emojiPill: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+  },
   pillActive: { backgroundColor: tokens.pillActive },
   pillInactive: { backgroundColor: tokens.pillInactive },
+  emojiPillActive: {
+    borderBottomWidth: 3,
+    borderBottomColor: tokens.accent,
+  },
+  emojiPillInactive: {
+    backgroundColor: 'transparent',
+  },
   pillPressed: { opacity: 0.75 },
   pillText: { fontSize: 11, fontWeight: '700' },
+  emojiPillText: { fontSize: 28 },
   pillTextActive: { color: tokens.primary },
   pillTextInactive: { color: tokens.pillInactiveText },
 });
@@ -213,9 +247,9 @@ export default function AddLogScreen({ navigation }: Props) {
   const [challenge, setChallenge] = useState('');
   const [solution, setSolution] = useState('');
   const [tomorrowPlan, setTomorrowPlan] = useState('');
-  const [productivity, setProductivity] = useState(6);
-  const [confidence, setConfidence] = useState(6);
-  const [stress, setStress] = useState(4);
+  const [productivity, setProductivity] = useState(3);
+  const [confidence, setConfidence] = useState(3);
+  const [stress, setStress] = useState(3);
   const [saving, setSaving] = useState(false);
 
   const saveScale = useRef(new Animated.Value(1)).current;
@@ -279,9 +313,15 @@ export default function AddLogScreen({ navigation }: Props) {
   const progress = filled / 5;
 
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={s.keyboard}>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
+      style={s.keyboard}
+    >
       <ScrollView
+        automaticallyAdjustKeyboardInsets
         contentContainerStyle={s.container}
+        keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
@@ -347,13 +387,15 @@ export default function AddLogScreen({ navigation }: Props) {
         <View style={[s.card, s.reflectionCard]}>
           <View style={s.reflectionHeader}>
             <Text style={s.reflectionTitle}>How did today feel?</Text>
-            <Text style={s.reflectionSub}>Rate each from 1 – 10</Text>
+            <Text style={s.reflectionSub}>Rate each from 1 - 5</Text>
           </View>
 
           <PillScore
             label="Productivity"
             value={productivity}
             onChange={setProductivity}
+            max={5}
+            rounded
             hint="How much did you actually get done?"
           />
           <View style={s.scoreDivider} />
@@ -361,6 +403,8 @@ export default function AddLogScreen({ navigation }: Props) {
             label="Confidence"
             value={confidence}
             onChange={setConfidence}
+            max={5}
+            rounded
             hint="How certain did you feel in your decisions?"
           />
           <View style={s.scoreDivider} />
@@ -368,6 +412,8 @@ export default function AddLogScreen({ navigation }: Props) {
             label="Stress"
             value={stress}
             onChange={setStress}
+            max={5}
+            displayValues={['😌', '🙂', '😐', '😣', '😫']}
             hint="How heavy did the day feel?"
           />
         </View>
