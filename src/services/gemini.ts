@@ -8,6 +8,7 @@ import {
 import { debugLog, preview } from '../utils/debug';
 import { scoreToPercent } from '../utils/scores';
 import { getGeminiApiKey } from './userSettings';
+import { recordGeminiError } from './geminiAlerts';
 
 function extractJson(text: string) {
   const fencedMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
@@ -124,58 +125,60 @@ Tomorrow plan: ${log.tomorrow_plan}
     promptLength: prompt.length,
   });
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [{ text: prompt }],
-          },
-        ],
-        generationConfig: {
-          temperature: 0.35,
-          responseMimeType: 'application/json',
-        },
-      }),
-    }
-  );
-
-  if (!response.ok) {
-    const message = await response.text();
-    debugLog('Gemini', 'Daily analysis HTTP error', {
-      logId: log.id,
-      status: response.status,
-      statusText: response.statusText,
-      body: preview(message),
-    });
-    throw new Error(message || 'Gemini request failed.');
-  }
-
-  const data = await response.json();
-  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-  debugLog('Gemini', 'Daily analysis response received', {
-    logId: log.id,
-    candidateCount: Array.isArray(data?.candidates) ? data.candidates.length : 0,
-    textPreview: typeof text === 'string' ? preview(text) : text,
-  });
-
-  if (typeof text !== 'string' || !text.trim()) {
-    throw new Error('Gemini returned an empty response.');
-  }
-
-  const jsonText = extractJson(text);
-  debugLog('Gemini', 'Daily analysis JSON extracted', {
-    logId: log.id,
-    jsonPreview: preview(jsonText),
-  });
+  let jsonText = '';
 
   try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [{ text: prompt }],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.35,
+            responseMimeType: 'application/json',
+          },
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const message = await response.text();
+      debugLog('Gemini', 'Daily analysis HTTP error', {
+        logId: log.id,
+        status: response.status,
+        statusText: response.statusText,
+        body: preview(message),
+      });
+      throw new Error(message || 'Gemini request failed.');
+    }
+
+    const data = await response.json();
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+    debugLog('Gemini', 'Daily analysis response received', {
+      logId: log.id,
+      candidateCount: Array.isArray(data?.candidates) ? data.candidates.length : 0,
+      textPreview: typeof text === 'string' ? preview(text) : text,
+    });
+
+    if (typeof text !== 'string' || !text.trim()) {
+      throw new Error('Gemini returned an empty response.');
+    }
+
+    jsonText = extractJson(text);
+    debugLog('Gemini', 'Daily analysis JSON extracted', {
+      logId: log.id,
+      jsonPreview: preview(jsonText),
+    });
+
     return normalizeAnalysis(JSON.parse(jsonText));
   } catch (error) {
     debugLog('Gemini', 'Daily analysis JSON parse/normalize failed', {
@@ -183,6 +186,7 @@ Tomorrow plan: ${log.tomorrow_plan}
       jsonPreview: preview(jsonText),
       error,
     });
+    await recordGeminiError('daily-analysis', error);
     throw error;
   }
 };
@@ -247,34 +251,39 @@ Seven-log block:
 ${logText}
 `;
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.35,
-          responseMimeType: 'application/json',
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
-      }),
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.35,
+            responseMimeType: 'application/json',
+          },
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const message = await response.text();
+      throw new Error(message || 'Gemini weekly reflection request failed.');
     }
-  );
 
-  if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || 'Gemini weekly reflection request failed.');
+    const data = await response.json();
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+    if (typeof text !== 'string' || !text.trim()) {
+      throw new Error('Gemini returned an empty weekly reflection response.');
+    }
+
+    return normalizeWeeklyReflection(JSON.parse(extractJson(text)));
+  } catch (error) {
+    await recordGeminiError('weekly-reflection', error);
+    throw error;
   }
-
-  const data = await response.json();
-  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-  if (typeof text !== 'string' || !text.trim()) {
-    throw new Error('Gemini returned an empty weekly reflection response.');
-  }
-
-  return normalizeWeeklyReflection(JSON.parse(extractJson(text)));
 };
