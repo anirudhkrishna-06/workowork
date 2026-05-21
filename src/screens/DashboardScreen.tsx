@@ -3,18 +3,21 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import React, { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
+  Animated,
+  LayoutChangeEvent,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
-import Svg, { Circle, Line, Path, Polyline } from 'react-native-svg';
+import Svg, { Circle, Line, Path } from 'react-native-svg';
 
 import { useAuth } from '../context/AuthContext';
 import { RootStackParamList } from '../navigation/types';
 import { supabase } from '../services/supabase';
 import { AiAnalysis, DailyLogWithAnalysis, WeeklyReflection } from '../types/workowork';
+import { averageScorePercent, clampScore, formatPercent, scoreToPercent } from '../utils/scores';
+import { useEntranceMotion } from '../utils/useEntranceMotion';
 
 // ─── Design Tokens ─────────────────────────────────────────────────────────────
 const t = {
@@ -56,23 +59,19 @@ function formatDate(value?: string | null) {
 
 // ─── Trend Sparkline ──────────────────────────────────────────────────────────
 function TrendLine({ data, width = 280, height = 64 }: { data: number[]; width?: number; height?: number }) {
-  if (data.length < 2) return null;
+  if (!data.length) return null;
 
-  const padX = 12;
-  const padY = 10;
-  const w = width - padX * 2;
+  const padX = 18;
+  const padY = 12;
+  const w = Math.max(1, width - padX * 2);
   const h = height - padY * 2;
+  const normalized = data.map(clampScore);
 
-  const min = Math.min(...data);
-  const max = Math.max(...data);
-  const range = max - min || 1;
-
-  const pts = data.map((v, i) => ({
-    x: padX + (i / (data.length - 1)) * w,
-    y: padY + h - ((v - min) / range) * h,
+  const pts = normalized.map((v, i) => ({
+    x: data.length === 1 ? padX + w / 2 : padX + (i / (data.length - 1)) * w,
+    y: padY + h - ((v - 1) / 4) * h,
   }));
 
-  // Build smooth path via bezier
   let d = `M ${pts[0].x} ${pts[0].y}`;
   for (let i = 1; i < pts.length; i++) {
     const prev = pts[i - 1];
@@ -84,24 +83,39 @@ function TrendLine({ data, width = 280, height = 64 }: { data: number[]; width?:
   const last = pts[pts.length - 1];
 
   return (
-    <Svg width={width} height={height} style={{ overflow: 'visible' }}>
-      {/* Baseline */}
+    <Svg width={width} height={height} style={stylesSvg.chart}>
       <Line
-        x1={padX} y1={padY + h}
-        x2={padX + w} y2={padY + h}
-        stroke={t.border} strokeWidth={1}
+        x1={padX}
+        y1={padY}
+        x2={padX + w}
+        y2={padY}
+        stroke={t.border}
+        strokeWidth={1}
       />
-      {/* Trend line */}
-      <Path d={d} fill="none" stroke={t.accent} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
-      {/* Data dots */}
+      <Line
+        x1={padX}
+        y1={padY + h / 2}
+        x2={padX + w}
+        y2={padY + h / 2}
+        stroke={t.border}
+        strokeDasharray="4 5"
+        strokeWidth={1}
+      />
+      <Line x1={padX} y1={padY + h} x2={padX + w} y2={padY + h} stroke={t.border} strokeWidth={1} />
+      {pts.length > 1 && (
+        <Path d={d} fill="none" stroke={t.accent} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
+      )}
       {pts.map((p, i) => (
         <Circle key={i} cx={p.x} cy={p.y} r={3} fill={i === pts.length - 1 ? t.accent : t.accentMuted} />
       ))}
-      {/* Last value label */}
       <Circle cx={last.x} cy={last.y} r={5} fill={t.accent} />
     </Svg>
   );
 }
+
+const stylesSvg = StyleSheet.create({
+  chart: { overflow: 'hidden' },
+});
 
 // ─── Metric Card ──────────────────────────────────────────────────────────────
 function MetricCard({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
@@ -253,9 +267,11 @@ function Divider() {
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function DashboardScreen({ navigation }: Props) {
   const { session } = useAuth();
+  const pageMotion = useEntranceMotion();
   const [logs, setLogs] = useState<DailyLogWithAnalysis[]>([]);
   const [weeklyReflections, setWeeklyReflections] = useState<WeeklyReflection[]>([]);
   const [loading, setLoading] = useState(true);
+  const [trendWidth, setTrendWidth] = useState(0);
 
   const loadDashboard = useCallback(async () => {
     if (!session?.user.id) return;
@@ -302,37 +318,40 @@ export default function DashboardScreen({ navigation }: Props) {
     .filter((a): a is AiAnalysis => !!a);
 
   const weeklyLogs = logs.slice(0, 7);
-  const weeklyProductivity = weeklyLogs.length
-    ? Math.round(
-        weeklyLogs.reduce((total, log) => total + Number(log.productivity ?? 0), 0) /
-          weeklyLogs.length
-      )
-    : 0;
+  const weeklyProductivityPercent = averageScorePercent(weeklyLogs.map((log) => log.productivity));
 
   const confidenceTrend = logs
     .slice(0, 7)
     .reverse()
     .map((log) => log.confidence);
 
-  const avgConfidence = confidenceTrend.length
-    ? Math.round(confidenceTrend.reduce((a, b) => a + b, 0) / confidenceTrend.length)
-    : null;
+  const avgConfidencePercent = averageScorePercent(confidenceTrend);
 
   const skills = topItems(analyses.flatMap((a) => a.skills ?? []));
   const weaknesses = topItems(analyses.flatMap((a) => a.weaknesses ?? []));
 
   // Trend insight text
   const trendInsight = (() => {
-    if (confidenceTrend.length < 3) return null;
-    const first = confidenceTrend.slice(0, 3).reduce((a, b) => a + b) / 3;
-    const last = confidenceTrend.slice(-3).reduce((a, b) => a + b) / 3;
-    if (last > first + 0.5) return 'Confidence has been climbing this week.';
-    if (last < first - 0.5) return 'A dip this week — thats worth reflecting on.';
-    return 'Confidence has stayed steady lately.';
+    if (confidenceTrend.length === 1) return `Latest confidence is ${scoreToPercent(confidenceTrend[0])}%.`;
+    if (confidenceTrend.length < 3) return 'Add one more reflection to make the confidence pattern clearer.';
+    const first = confidenceTrend.slice(0, 3).reduce((a, b) => a + clampScore(b), 0) / 3;
+    const last = confidenceTrend.slice(-3).reduce((a, b) => a + clampScore(b), 0) / 3;
+    const delta = scoreToPercent(last) - scoreToPercent(first);
+    if (delta >= 12) return `Confidence is up ${delta} points against the start of the week.`;
+    if (delta <= -12) return `Confidence is down ${Math.abs(delta)} points; check what changed.`;
+    return `Confidence is steady around ${formatPercent(avgConfidencePercent)}.`;
   })();
 
+  const handleTrendLayout = (event: LayoutChangeEvent) => {
+    const nextWidth = Math.floor(event.nativeEvent.layout.width);
+    if (nextWidth > 0 && nextWidth !== trendWidth) {
+      setTrendWidth(nextWidth);
+    }
+  };
+
   return (
-    <ScrollView
+    <Animated.ScrollView
+      style={pageMotion}
       contentContainerStyle={s.container}
       showsVerticalScrollIndicator={false}
     >
@@ -370,11 +389,11 @@ export default function DashboardScreen({ navigation }: Props) {
           />
           <MetricCard
             label="Weekly Productivity"
-            value={weeklyProductivity ? `${weeklyProductivity}/10` : '—'}
+            value={formatPercent(weeklyProductivityPercent)}
           />
           <MetricCard
             label="Avg Confidence"
-            value={avgConfidence ? `${avgConfidence}/10` : '—'}
+            value={formatPercent(avgConfidencePercent)}
             accent
           />
         </View>
@@ -388,12 +407,12 @@ export default function DashboardScreen({ navigation }: Props) {
           title="Confidence trend"
           sub={trendInsight ?? 'Tracks your recent confidence scores.'}
         />
-        {confidenceTrend.length >= 2 ? (
-          <View style={s.trendCard}>
-            <TrendLine data={confidenceTrend} width={320} height={72} />
+        {confidenceTrend.length >= 1 ? (
+          <View style={s.trendCard} onLayout={handleTrendLayout}>
+            {trendWidth > 0 && <TrendLine data={confidenceTrend} width={Math.max(1, trendWidth - 40)} height={86} />}
             <View style={s.trendFooter}>
               {confidenceTrend.map((v, i) => (
-                <Text key={i} style={s.trendTick}>{v}</Text>
+                <Text key={i} style={s.trendTick}>{scoreToPercent(v)}%</Text>
               ))}
             </View>
           </View>
@@ -452,7 +471,7 @@ export default function DashboardScreen({ navigation }: Props) {
           <EmptyNote text="Weekly summaries will appear here once you've logged 7 reflections." />
         )}
       </View>
-    </ScrollView>
+    </Animated.ScrollView>
   );
 }
 
@@ -468,7 +487,7 @@ const s = StyleSheet.create({
   },
 
   // Header
-  header: { gap: 6 },
+  header: { gap: 6, paddingRight: 56 },
   title: { color: t.primary, fontSize: 42, fontWeight: '800', letterSpacing: -1.5 },
   subtitle: { color: t.muted, fontSize: 14, lineHeight: 21 },
 

@@ -1,5 +1,6 @@
 import { generateWeeklyReflection } from './gemini';
 import { supabase } from './supabase';
+import { buildWeeklyPayload } from './weeklyReports';
 import { DailyLogWithAnalysis, GeneratedWeeklyReflection, Profile } from '../types/workowork';
 
 function payloadFromReflection(reflection: GeneratedWeeklyReflection) {
@@ -48,12 +49,22 @@ export async function processWeeklyReflectionIfDue(profile: Profile | null, user
   const orderedLogs = [...(logs as DailyLogWithAnalysis[])].reverse();
   const periodStart = orderedLogs[0]?.created_at ?? null;
   const periodEnd = orderedLogs[orderedLogs.length - 1]?.created_at ?? null;
+  const storedReportPayload =
+    periodStart && periodEnd
+      ? buildWeeklyPayload({
+          profile,
+          logs: orderedLogs,
+          weekNumber,
+          periodStart: new Date(periodStart),
+          periodEnd: new Date(periodEnd),
+        })
+      : null;
 
   await supabase.from('weekly_reflections').upsert(
     {
       user_id: userId,
       week_number: weekNumber,
-      log_count: count,
+      log_count: orderedLogs.length,
       period_start: periodStart,
       period_end: periodEnd,
       status: 'processing',
@@ -67,6 +78,7 @@ export async function processWeeklyReflectionIfDue(profile: Profile | null, user
     await supabase
       .from('weekly_reflections')
       .update({
+        ...(storedReportPayload ?? {}),
         ...payloadFromReflection(reflection),
         status: 'completed',
       })

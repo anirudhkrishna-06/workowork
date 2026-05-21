@@ -3,10 +3,10 @@ import { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   KeyboardAvoidingView,
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -16,12 +16,18 @@ import {
 import { useAuth } from '@/src/context/AuthContext';
 import { supabase } from '@/src/services/supabase';
 import { colors } from '@/src/styles/theme';
+import { useEntranceMotion } from '@/src/utils/useEntranceMotion';
 
 export default function OnboardingScreen() {
   const { session, refreshProfile } = useAuth();
+  const pageMotion = useEntranceMotion(80, 22);
   const [role, setRole] = useState('');
   const [company, setCompany] = useState('');
   const [duration, setDuration] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [department, setDepartment] = useState('');
+  const [manager, setManager] = useState('');
   const [goal, setGoal] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -36,6 +42,18 @@ export default function OnboardingScreen() {
       return;
     }
 
+    const normalizedStartDate = normalizeDateInput(startDate, 'start date');
+    const normalizedEndDate = normalizeDateInput(endDate, 'end date');
+
+    if (normalizedStartDate === false || normalizedEndDate === false) {
+      return;
+    }
+
+    if (normalizedStartDate && normalizedEndDate && normalizedEndDate < normalizedStartDate) {
+      Alert.alert('Check your dates', 'End date should be after the start date.');
+      return;
+    }
+
     setLoading(true);
     const { error } = await supabase
       .from('profiles')
@@ -43,6 +61,10 @@ export default function OnboardingScreen() {
         role: role.trim(),
         company: company.trim(),
         duration: duration.trim() || null,
+        internship_start_date: normalizedStartDate,
+        internship_end_date: normalizedEndDate,
+        department: department.trim() || null,
+        reporting_manager: manager.trim() || null,
         goal: goal.trim(),
       })
       .eq('id', session.user.id);
@@ -63,7 +85,7 @@ export default function OnboardingScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       style={styles.keyboard}
     >
-      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+      <Animated.ScrollView style={pageMotion} contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <View style={styles.header}>
           <Text style={styles.title}>Set Your Internship Context</Text>
           <Text style={styles.subtitle}>Only once. WorkoWork uses this to keep your logs meaningful.</Text>
@@ -71,6 +93,10 @@ export default function OnboardingScreen() {
 
         <TextInput onChangeText={setRole} placeholder="Role" style={styles.input} value={role} />
         <TextInput onChangeText={setCompany} placeholder="Company" style={styles.input} value={company} />
+        <TextInput onChangeText={setDepartment} placeholder="Department" style={styles.input} value={department} />
+        <TextInput onChangeText={setManager} placeholder="Reporting manager" style={styles.input} value={manager} />
+        <TextInput onChangeText={setStartDate} placeholder="Start date (YYYY-MM-DD)" style={styles.input} value={startDate} />
+        <TextInput onChangeText={setEndDate} placeholder="End date (YYYY-MM-DD)" style={styles.input} value={endDate} />
         <TextInput
           onChangeText={setDuration}
           placeholder="Duration"
@@ -93,9 +119,33 @@ export default function OnboardingScreen() {
             <Text style={styles.primaryButtonText}>Continue</Text>
           )}
         </Pressable>
-      </ScrollView>
+      </Animated.ScrollView>
     </KeyboardAvoidingView>
   );
+}
+
+function normalizeDateInput(value: string, label: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    Alert.alert('Use YYYY-MM-DD', `Enter the ${label} like 2026-05-17.`);
+    return false;
+  }
+
+  const [year, month, day] = trimmed.split('-').map(Number);
+  const date = new Date(year, month - 1, day);
+  const isValid =
+    date.getFullYear() === year &&
+    date.getMonth() === month - 1 &&
+    date.getDate() === day;
+
+  if (!isValid) {
+    Alert.alert('Check your date', `Enter a valid ${label}.`);
+    return false;
+  }
+
+  return trimmed;
 }
 
 const styles = StyleSheet.create({

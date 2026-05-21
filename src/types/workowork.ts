@@ -6,6 +6,10 @@ export type Profile = {
   role: string | null;
   goal: string | null;
   duration: string | null;
+  internship_start_date?: string | null;
+  internship_end_date?: string | null;
+  department?: string | null;
+  reporting_manager?: string | null;
   created_at: string;
 };
 
@@ -81,6 +85,11 @@ export type WeeklyReflection = {
   period_start: string | null;
   period_end: string | null;
   weekly_summary: string | null;
+  tasks_accomplishments?: string[] | null;
+  tools_technologies?: string[] | null;
+  challenges_blockers?: string[] | null;
+  goals_next_week?: string[] | null;
+  day_summaries?: WeeklyDaySummary[] | null;
   improvements: string[] | null;
   recurring_weaknesses: string[] | null;
   suggestions: string[] | null;
@@ -88,40 +97,15 @@ export type WeeklyReflection = {
   created_at: string;
 };
 
+export type WeeklyDaySummary = {
+  date: string;
+  label: string;
+  summaries: string[];
+};
+
 export type GeneratedWeeklyReflection = {
   weekly_summary: string;
   improvements: string[];
   recurring_weaknesses: string[];
   suggestions: string[];
-};
-
-export type InternshipReportStatus = 'draft' | 'generating' | 'completed' | 'failed';
-
-export type InternshipReport = {
-  id: string;
-  user_id: string;
-  title: string;
-  introduction: string | null;
-  objectives: string[] | null;
-  work_completed: string[] | null;
-  challenges: string[] | null;
-  learnings: string[] | null;
-  growth_summary: string | null;
-  conclusion: string | null;
-  resume_bullets: string[] | null;
-  status: InternshipReportStatus;
-  created_at: string;
-  updated_at: string;
-};
-
-export type GeneratedInternshipReport = {
-  title: string;
-  introduction: string;
-  objectives: string[];
-  work_completed: string[];
-  challenges: string[];
-  learnings: string[];
-  growth_summary: string;
-  conclusion: string;
-  resume_bullets: string[];
 };

@@ -18,7 +18,6 @@ import { useAuth } from '../context/AuthContext';
 import { RootStackParamList } from '../navigation/types';
 import { createPendingAnalysis, processLogAnalysis } from '../services/aiAnalysis';
 import { supabase } from '../services/supabase';
-import { processWeeklyReflectionIfDue } from '../services/weeklyReflections';
 import { DailyLog } from '../types/workowork';
 import { debugLog, errorDetails } from '../utils/debug';
 
@@ -299,7 +298,6 @@ export default function AddLogScreen({ navigation }: Props) {
     debugLog('AI', 'Background daily analysis scheduled after save', { logId: savedLog.id });
     createPendingAnalysis(savedLog.id)
       .then(() => processLogAnalysis(profile, savedLog))
-      .then(() => processWeeklyReflectionIfDue(profile, session.user.id))
       .catch((analysisError) => {
         debugLog('AI', 'Background daily analysis chain failed before completion', {
           logId: savedLog.id,
@@ -341,7 +339,7 @@ export default function AddLogScreen({ navigation }: Props) {
           </View>
 
           <Text style={s.title}>Daily{'\n'}Reflection</Text>
-          <Text style={s.subtitle}>You don't need perfect notes.{'\n'}Just honest ones.</Text>
+          <Text style={s.subtitle}>{"You don't need perfect notes."}{'\n'}Just honest ones.</Text>
         </View>
 
         {/* ── Today's Work ───────────────────────────────────── */}
@@ -467,7 +465,7 @@ const s = StyleSheet.create({
 
   // Header
   header: { gap: 12, marginBottom: 6 },
-  headerTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  headerTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingRight: 56 },
   datePill: {
     backgroundColor: tokens.accentSubtle,
     borderRadius: 99,

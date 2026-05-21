@@ -11,165 +11,80 @@ import {
 } from 'react-native';
 
 import { useAuth } from '../context/AuthContext';
-import { exportReportAsPdf, shareReportText } from '../services/reportExport';
-import { generateInternshipReport } from '../services/gemini';
+import { exportWeeklyReportAsPdf } from '../services/reportExport';
 import { supabase } from '../services/supabase';
+import { availableWeekNumbers, generateStoredWeeklyReport, nextUngeneratedWeek } from '../services/weeklyReports';
 import { colors } from '../styles/theme';
 import {
   DailyLogWithAnalysis,
-  GeneratedInternshipReport,
-  InternshipReport,
   WeeklyReflection,
 } from '../types/workowork';
 
-function asReportPayload(report: GeneratedInternshipReport) {
-  return {
-    title: report.title,
-    introduction: report.introduction,
-    objectives: report.objectives,
-    work_completed: report.work_completed,
-    challenges: report.challenges,
-    learnings: report.learnings,
-    growth_summary: report.growth_summary,
-    conclusion: report.conclusion,
-    resume_bullets: report.resume_bullets,
-  };
-}
-
 export default function ReportScreen() {
   const { profile, session } = useAuth();
-  const [report, setReport] = useState<InternshipReport | null>(null);
+  const [weeklyReports, setWeeklyReports] = useState<WeeklyReflection[]>([]);
+  const [logs, setLogs] = useState<DailyLogWithAnalysis[]>([]);
   const [loading, setLoading] = useState(true);
-  const [generating, setGenerating] = useState(false);
+  const [generatingWeek, setGeneratingWeek] = useState<number | null>(null);
   const [exporting, setExporting] = useState(false);
 
-  const loadLatestReport = useCallback(async () => {
+  const loadReports = useCallback(async () => {
     if (!session?.user.id) return;
 
-    const { data, error } = await supabase
-      .from('internship_reports')
-      .select('*')
-      .eq('user_id', session.user.id)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    const [{ data: weeklyData, error: weeklyError }, { data: logData, error: logError }] =
+      await Promise.all([
+        supabase
+          .from('weekly_reflections')
+          .select('*')
+          .eq('user_id', session.user.id)
+          .order('week_number', { ascending: true }),
+        supabase
+          .from('daily_logs')
+          .select('*, ai_analysis(*)')
+          .eq('user_id', session.user.id)
+          .order('created_at', { ascending: true }),
+      ]);
 
-    if (error) console.log('Report load failed', error.message);
-    setReport(data as InternshipReport | null);
+    if (weeklyError) console.log('Weekly report load failed', weeklyError.message);
+    if (logError) console.log('Report log load failed', logError.message);
+    setWeeklyReports(weeklyError ? [] : ((weeklyData ?? []) as WeeklyReflection[]));
+    setLogs(logError ? [] : ((logData ?? []) as DailyLogWithAnalysis[]));
     setLoading(false);
   }, [session?.user.id]);
 
   useFocusEffect(
     useCallback(() => {
-      loadLatestReport();
-    }, [loadLatestReport])
+      loadReports();
+    }, [loadReports])
   );
 
-  const handleGenerate = async () => {
+  const handleGenerateWeek = async (weekNumber: number) => {
     if (!session?.user.id) return;
 
-    setGenerating(true);
-
-    const { data: draft, error: draftError } = await supabase
-      .from('internship_reports')
-      .insert({
-        user_id: session.user.id,
-        title: `${profile?.role ?? 'Internship'} Report`,
-        status: 'generating',
-      })
-      .select('*')
-      .single();
-
-    if (draftError) {
-      setGenerating(false);
-      Alert.alert('Could not start report', draftError.message);
-      return;
-    }
-
-    setReport(draft as InternshipReport);
-
-    const [{ data: logs, error: logsError }, { data: weekly, error: weeklyError }] = await Promise.all([
-      supabase
-        .from('daily_logs')
-        .select('*, ai_analysis(*), mentor_feedback(*)')
-        .eq('user_id', session.user.id)
-        .order('created_at', { ascending: true }),
-      supabase
-        .from('weekly_reflections')
-        .select('*')
-        .eq('user_id', session.user.id)
-        .order('week_number', { ascending: true }),
-    ]);
-
-    if (logsError || weeklyError) {
-      await markFailed(draft.id);
-      setGenerating(false);
-      Alert.alert('Could not gather report data', logsError?.message ?? weeklyError?.message);
-      return;
-    }
-
+    setGeneratingWeek(weekNumber);
     try {
-      const generated = await generateInternshipReport({
+      await generateStoredWeeklyReport({
+        userId: session.user.id,
         profile,
-        logs: (logs ?? []) as DailyLogWithAnalysis[],
-        weeklyReflections: (weekly ?? []) as WeeklyReflection[],
+        weekNumber,
       });
-
-      const { data: completed, error: updateError } = await supabase
-        .from('internship_reports')
-        .update({
-          ...asReportPayload(generated),
-          status: 'completed',
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', draft.id)
-        .select('*')
-        .single();
-
-      if (updateError) {
-        throw updateError;
-      }
-
-      setReport(completed as InternshipReport);
+      await loadReports();
     } catch (error) {
-      console.log('Report generation failed', error);
-      await markFailed(draft.id);
-      Alert.alert('Report generation failed', 'Please try again after AI analysis has completed for your logs.');
-      await loadLatestReport();
+      console.log('Weekly report generation failed', error);
+      Alert.alert('Weekly report failed', error instanceof Error ? error.message : 'Could not generate this weekly report.');
     }
-
-    setGenerating(false);
+    setGeneratingWeek(null);
   };
 
-  const markFailed = async (id: string) => {
-    await supabase
-      .from('internship_reports')
-      .update({ status: 'failed', updated_at: new Date().toISOString() })
-      .eq('id', id);
-  };
-
-  const handleExportPdf = async () => {
-    if (!report || report.status !== 'completed') return;
-
+  const handleExportWeeklyPdf = async (weekly: WeeklyReflection) => {
     setExporting(true);
     try {
-      await exportReportAsPdf(report, profile);
+      await exportWeeklyReportAsPdf(weekly, profile);
     } catch (error) {
-      console.log('PDF export failed', error);
-      Alert.alert('Export failed', 'Could not export the PDF on this device.');
+      console.log('Weekly PDF export failed', error);
+      Alert.alert('Export failed', 'Could not export the weekly PDF on this device.');
     }
     setExporting(false);
-  };
-
-  const handleShareText = async () => {
-    if (!report || report.status !== 'completed') return;
-
-    try {
-      await shareReportText(report, profile);
-    } catch (error) {
-      console.log('Text share failed', error);
-      Alert.alert('Share failed', 'Could not share the report text.');
-    }
   };
 
   if (loading) {
@@ -180,133 +95,174 @@ export default function ReportScreen() {
     );
   }
 
+  const nextWeek = nextUngeneratedWeek(profile, logs, weeklyReports);
+  const weeks = availableWeekNumbers(profile, logs, weeklyReports);
+  const completedWeeks = new Set(weeklyReports.filter((report) => report.status === 'completed').map((report) => report.week_number));
+  const weeksNeedingReports = weeks.filter((week) => !completedWeeks.has(week));
+
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.title}>Internship Report</Text>
-      <Text style={styles.subtitle}>Generate a professional report from your full WorkoWork history.</Text>
+      <Text style={styles.title}>Reports</Text>
 
-      <Pressable disabled={generating} onPress={handleGenerate} style={styles.primaryButton}>
-        {generating ? (
-          <ActivityIndicator color="#FFFFFF" />
-        ) : (
-          <Text style={styles.primaryButtonText}>{report ? 'Regenerate Report' : 'Generate Internship Report'}</Text>
-        )}
-      </Pressable>
-
-      {report ? <ReportPreview report={report} /> : <EmptyReport />}
-
-      {report?.status === 'completed' && (
-        <View style={styles.exportRow}>
-          <Pressable disabled={exporting} onPress={handleExportPdf} style={styles.exportButton}>
-            {exporting ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.exportButtonText}>Export PDF</Text>}
+      <View style={styles.weekHeader}>
+        <Text style={styles.sectionHeading}>Weekly Reports</Text>
+        {nextWeek ? (
+          <Pressable disabled={generatingWeek !== null} onPress={() => handleGenerateWeek(nextWeek)} style={styles.smallPrimaryButton}>
+            {generatingWeek === nextWeek ? (
+              <ActivityIndicator color="#FFFFFF" size="small" />
+            ) : (
+              <Text style={styles.smallPrimaryText}>Generate {ordinal(nextWeek)} Week</Text>
+            )}
           </Pressable>
-          <Pressable onPress={handleShareText} style={styles.secondaryButton}>
-            <Text style={styles.secondaryButtonText}>Share Text</Text>
-          </Pressable>
+        ) : null}
+      </View>
+
+      {weeklyReports.length ? (
+        <View style={styles.weekList}>
+          {weeklyReports.map((weekly) => (
+            <WeeklyReportCard
+              key={weekly.id}
+              exporting={exporting}
+              generating={generatingWeek === weekly.week_number}
+              report={weekly}
+              onExport={() => handleExportWeeklyPdf(weekly)}
+              onRegenerate={() => handleGenerateWeek(weekly.week_number)}
+            />
+          ))}
+        </View>
+      ) : (
+        <View style={styles.emptyBox}>
+          <Text style={styles.bodyText}>
+            {weeks.length ? 'No weekly reports generated yet. Start with the first available week.' : 'Add log entries before generating weekly reports.'}
+          </Text>
+        </View>
+      )}
+
+      {weeksNeedingReports.length > 0 && (
+        <View style={styles.weekPicker}>
+          {weeksNeedingReports.map((week) => (
+            <Pressable
+              key={week}
+              disabled={generatingWeek !== null}
+              onPress={() => handleGenerateWeek(week)}
+              style={({ pressed }) => [styles.weekChip, pressed && styles.weekChipPressed]}
+            >
+              <Text style={styles.weekChipText}>Week {week}</Text>
+            </Pressable>
+          ))}
         </View>
       )}
     </ScrollView>
   );
 }
 
-function EmptyReport() {
-  return (
-    <View style={styles.emptyBox}>
-      <Text style={styles.bodyText}>No report generated yet.</Text>
-    </View>
-  );
-}
-
-function ReportPreview({ report }: { report: InternshipReport }) {
-  if (report.status !== 'completed') {
-    return (
-      <View style={styles.emptyBox}>
-        <Text style={styles.statusText}>Report {report.status}.</Text>
-      </View>
-    );
+function ordinal(value: number) {
+  const mod100 = value % 100;
+  if (mod100 >= 11 && mod100 <= 13) return `${value}th`;
+  switch (value % 10) {
+    case 1:
+      return `${value}st`;
+    case 2:
+      return `${value}nd`;
+    case 3:
+      return `${value}rd`;
+    default:
+      return `${value}th`;
   }
-
-  return (
-    <View style={styles.reportBox}>
-      <Text style={styles.reportTitle}>{report.title}</Text>
-      <Section title="Introduction" text={report.introduction} />
-      <ListSection title="Objectives" items={report.objectives} />
-      <ListSection title="Work Completed" items={report.work_completed} />
-      <ListSection title="Challenges" items={report.challenges} />
-      <ListSection title="Learnings" items={report.learnings} />
-      <Section title="Growth Summary" text={report.growth_summary} />
-      <Section title="Conclusion" text={report.conclusion} />
-      <ListSection title="Resume Bullets" items={report.resume_bullets} />
-    </View>
-  );
 }
 
-function Section({ title, text }: { title: string; text?: string | null }) {
-  return (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>{title}</Text>
-      <Text style={styles.bodyText}>{text || 'Not available.'}</Text>
-    </View>
-  );
+function formatReportDate(value?: string | null) {
+  if (!value) return 'Not available';
+  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(value));
 }
 
-function ListSection({ title, items }: { title: string; items?: string[] | null }) {
+function WeeklyReportCard({
+  report,
+  generating,
+  exporting,
+  onRegenerate,
+  onExport,
+}: {
+  report: WeeklyReflection;
+  generating: boolean;
+  exporting: boolean;
+  onRegenerate: () => void;
+  onExport: () => void;
+}) {
+  const dayCount = Array.isArray(report.day_summaries) ? report.day_summaries.length : 0;
+
   return (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>{title}</Text>
-      {items?.length ? (
-        items.map((item) => (
-          <Text key={item} style={styles.listItem}>
-            - {item}
-          </Text>
-        ))
-      ) : (
-        <Text style={styles.bodyText}>Not available.</Text>
-      )}
+    <View style={styles.weekCard}>
+      <View style={styles.weekCardTop}>
+        <View>
+          <Text style={styles.weekTitle}>Week {report.week_number}</Text>
+          <Text style={styles.weekDate}>{formatReportDate(report.period_start)} - {formatReportDate(report.period_end)}</Text>
+        </View>
+        <View style={styles.weekBadge}>
+          <Text style={styles.weekBadgeText}>{report.status}</Text>
+        </View>
+      </View>
+      <Text style={styles.bodyText}>{report.weekly_summary || 'Weekly report generated from daily entries.'}</Text>
+      <Text style={styles.weekMeta}>{report.log_count} logs / {dayCount} day summaries</Text>
+      <View style={styles.weekActions}>
+        <Pressable disabled={generating} onPress={onRegenerate} style={styles.secondaryButton}>
+          {generating ? <ActivityIndicator color={colors.primary} /> : <Text style={styles.secondaryButtonText}>Regenerate</Text>}
+        </Pressable>
+        <Pressable disabled={exporting} onPress={onExport} style={styles.exportButton}>
+          {exporting ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.exportButtonText}>Export PDF</Text>}
+        </Pressable>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  bodyText: { color: colors.text, fontSize: 15, lineHeight: 23 },
+  bodyText: { color: colors.text, fontSize: 12, lineHeight: 18 },
   center: { alignItems: 'center', backgroundColor: colors.background, flex: 1, justifyContent: 'center' },
-  container: { backgroundColor: colors.background, padding: 20, paddingBottom: 36 },
+  container: { backgroundColor: colors.background, padding: 20, paddingTop: 92, paddingBottom: 36 },
   emptyBox: { backgroundColor: colors.surface, borderRadius: 12, marginTop: 20, padding: 16 },
   exportButton: {
     alignItems: 'center',
     backgroundColor: colors.primary,
-    borderRadius: 10,
+    borderRadius: 30,
     flex: 1,
     justifyContent: 'center',
     minHeight: 48,
   },
   exportButtonText: { color: '#FFFFFF', fontSize: 15, fontWeight: '800' },
-  exportRow: { flexDirection: 'row', gap: 10, marginTop: 18 },
-  listItem: { color: colors.text, fontSize: 15, lineHeight: 23, marginBottom: 4 },
-  primaryButton: {
-    alignItems: 'center',
-    backgroundColor: colors.primary,
-    borderRadius: 12,
-    justifyContent: 'center',
-    marginTop: 22,
-    minHeight: 54,
-  },
-  primaryButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
-  reportBox: { marginTop: 22 },
-  reportTitle: { color: colors.primary, fontSize: 22, fontWeight: '800', lineHeight: 29 },
+  sectionHeading: { color: colors.primary, fontSize: 20, fontWeight: '800', marginTop: 2 },
   secondaryButton: {
     alignItems: 'center',
     borderColor: colors.border,
-    borderRadius: 10,
+    borderRadius: 30,
     borderWidth: 1,
     flex: 1,
     justifyContent: 'center',
     minHeight: 48,
   },
   secondaryButtonText: { color: colors.primary, fontSize: 15, fontWeight: '800' },
-  section: { borderBottomColor: colors.border, borderBottomWidth: 1, paddingVertical: 16 },
-  sectionTitle: { color: colors.muted, fontSize: 13, fontWeight: '800', marginBottom: 8, textTransform: 'uppercase' },
-  statusText: { color: colors.muted, fontSize: 15, fontWeight: '700' },
-  subtitle: { color: colors.muted, fontSize: 15, lineHeight: 22, marginTop: 6 },
   title: { color: colors.primary, fontSize: 30, fontWeight: '800' },
+  smallPrimaryButton: {
+    alignItems: 'center',
+    backgroundColor: colors.primary,
+    borderRadius: 12,
+    justifyContent: 'center',
+    minHeight: 40,
+    paddingHorizontal: 14,
+  },
+  smallPrimaryText: { color: '#FFFFFF', fontSize: 13, fontWeight: '800' },
+  weekActions: { flexDirection: 'row', gap: 10, marginTop: 16 },
+  weekBadge: { backgroundColor: colors.surface, borderRadius: 99, paddingHorizontal: 10, paddingVertical: 4 },
+  weekBadgeText: { color: colors.muted, fontSize: 11, fontWeight: '800', textTransform: 'capitalize' },
+  weekCard: { backgroundColor: '#FFFFFF', borderColor: colors.border, borderRadius: 14, borderWidth: 1, padding: 16 },
+  weekCardTop: { alignItems: 'flex-start', flexDirection: 'row', justifyContent: 'space-between', gap: 12, marginBottom: 12 },
+  weekChip: { borderColor: colors.border, borderRadius: 99, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 8 },
+  weekChipPressed: { backgroundColor: colors.surface },
+  weekChipText: { color: colors.primary, fontSize: 13, fontWeight: '700' },
+  weekDate: { color: colors.muted, fontSize: 12, marginTop: 3 },
+  weekHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', gap: 12, marginTop: 24 },
+  weekList: { gap: 12, marginTop: 14 },
+  weekMeta: { color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: 10 },
+  weekPicker: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 14 },
+  weekTitle: { color: colors.primary, fontSize: 18, fontWeight: '800' },
 });

@@ -13,6 +13,9 @@ import OnboardingScreen from '../screens/OnboardingScreen';
 import LogDetailScreen from '../screens/LogDetailScreen';
 import DashboardScreen from '../screens/DashboardScreen';
 import ReportScreen from '../screens/ReportScreen';
+import AppSidebar from '../components/AppSidebar';
+import TimelineScreen from '../screens/TimelineScreen';
+import SettingsScreen from '../screens/SettingsScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -30,7 +33,12 @@ export default function AppNavigator() {
   const needsOnboarding = session && (!profile?.role || !profile?.company || !profile?.goal);
 
   return (
-    <Stack.Navigator>
+    <Stack.Navigator
+      screenOptions={{
+        animation: 'slide_from_right',
+        animationDuration: 260,
+      }}
+    >
       {!session ? (
         <>
           <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
@@ -40,11 +48,55 @@ export default function AppNavigator() {
         <Stack.Screen name="Onboarding" component={OnboardingScreen} options={{ headerShown: false }} />
       ) : (
         <>
-          <Stack.Screen name="Home" component={HomeScreen} options={{ headerShown: false }} />
-          <Stack.Screen name="AddLog" component={AddLogScreen} options={{ title: 'Add Daily Log', headerShown: false }} />
-          <Stack.Screen name="Dashboard" component={DashboardScreen} options={{ title: 'Dashboard', headerShown: false }} />
-          <Stack.Screen name="Report" component={ReportScreen} options={{ title: 'Internship Report', headerShown: false }} />
-          <Stack.Screen name="LogDetail" component={LogDetailScreen} options={{ title: 'Daily Log', headerShown: false }} />
+          <Stack.Screen name="Home" options={{ headerShown: false }}>
+            {(props) => (
+              <AppSidebar>
+                <HomeScreen {...props} />
+              </AppSidebar>
+            )}
+          </Stack.Screen>
+          <Stack.Screen name="AddLog" options={{ title: 'Add Daily Log', headerShown: false }}>
+            {(props) => (
+              <AppSidebar>
+                <AddLogScreen {...props} />
+              </AppSidebar>
+            )}
+          </Stack.Screen>
+          <Stack.Screen name="Dashboard" options={{ title: 'Dashboard', headerShown: false }}>
+            {(props) => (
+              <AppSidebar>
+                <DashboardScreen {...props} />
+              </AppSidebar>
+            )}
+          </Stack.Screen>
+          <Stack.Screen name="Report" options={{ title: 'Internship Report', headerShown: false }}>
+            {() => (
+              <AppSidebar>
+                <ReportScreen />
+              </AppSidebar>
+            )}
+          </Stack.Screen>
+          <Stack.Screen name="Timeline" options={{ title: 'Timeline', headerShown: false }}>
+            {(props) => (
+              <AppSidebar>
+                <TimelineScreen {...props} />
+              </AppSidebar>
+            )}
+          </Stack.Screen>
+          <Stack.Screen name="Settings" options={{ title: 'Settings', headerShown: false }}>
+            {() => (
+              <AppSidebar>
+                <SettingsScreen />
+              </AppSidebar>
+            )}
+          </Stack.Screen>
+          <Stack.Screen name="LogDetail" options={{ title: 'Daily Log', headerShown: false }}>
+            {(props) => (
+              <AppSidebar>
+                <LogDetailScreen {...props} />
+              </AppSidebar>
+            )}
+          </Stack.Screen>
         </>
       )}
     </Stack.Navigator>

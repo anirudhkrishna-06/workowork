@@ -1,13 +1,13 @@
 import {
   DailyLogWithAnalysis,
-  GeneratedInternshipReport,
   GeneratedLogAnalysis,
   GeneratedWeeklyReflection,
   LogAnalysisInput,
   Profile,
-  WeeklyReflection,
 } from '../types/workowork';
 import { debugLog, preview } from '../utils/debug';
+import { scoreToPercent } from '../utils/scores';
+import { getGeminiApiKey } from './userSettings';
 
 function extractJson(text: string) {
   const fencedMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
@@ -68,35 +68,15 @@ function normalizeWeeklyReflection(value: unknown): GeneratedWeeklyReflection {
   };
 }
 
-function normalizeInternshipReport(value: unknown): GeneratedInternshipReport {
-  if (!value || typeof value !== 'object') {
-    throw new Error('Gemini returned an invalid report shape.');
-  }
-
-  const record = value as Record<string, unknown>;
-
-  return {
-    title: typeof record.title === 'string' ? record.title.trim() : 'Internship Report',
-    introduction: typeof record.introduction === 'string' ? record.introduction.trim() : '',
-    objectives: asStringArray(record.objectives),
-    work_completed: asStringArray(record.work_completed),
-    challenges: asStringArray(record.challenges),
-    learnings: asStringArray(record.learnings),
-    growth_summary: typeof record.growth_summary === 'string' ? record.growth_summary.trim() : '',
-    conclusion: typeof record.conclusion === 'string' ? record.conclusion.trim() : '',
-    resume_bullets: asStringArray(record.resume_bullets),
-  };
-}
-
 export const generateLogAnalysis = async (
   profile: Profile | null,
   log: LogAnalysisInput
 ): Promise<GeneratedLogAnalysis> => {
-  const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
+  const apiKey = await getGeminiApiKey();
 
   if (!apiKey) {
     debugLog('Gemini', 'Missing Gemini API key for daily analysis', { logId: log.id });
-    throw new Error('Missing Gemini API key.');
+    throw new Error('Add your Gemini API key in Settings before using AI generation.');
   }
 
   const prompt = `
@@ -113,6 +93,13 @@ JSON schema:
   "resume_bullet": "One resume-ready bullet without exaggerated claims."
 }
 
+Analysis rules:
+- Treat productivity, confidence, and stress as 1-5 ratings; also use the percentage shown beside each score for user-facing interpretation.
+- Adapt the tone to the raw log. If the user describes tools, code, systems, debugging, architecture, analysis, metrics, implementation, or project delivery, respond with concrete technical language. If the user mainly describes emotional state, loneliness, uncertainty, or confidence issues, respond in a supportive non-technical way.
+- Ground every insight in at least one Amazon Leadership Principle when relevant: Customer Obsession, Ownership, Invent and Simplify, Are Right A Lot, Learn and Be Curious, Hire and Develop the Best, Insist on the Highest Standards, Think Big, Bias for Action, Frugality, Earn Trust, Dive Deep, Have Backbone; Disagree and Commit, Deliver Results, Strive to be Earth's Best Employer, Success and Scale Bring Broad Responsibility.
+- Keep the leadership-principle mapping natural and specific. Do not force jargon, but make suggestions and weaknesses reflect the principle being practiced or needed.
+- Do not invent technologies, deliverables, or business outcomes that are not present in the log.
+
 User context:
 Name: ${profile?.name ?? 'Unknown'}
 Role: ${profile?.role ?? 'Intern'}
@@ -125,9 +112,9 @@ Work done: ${log.task}
 Learning: ${log.learning}
 Challenges: ${log.challenge}
 Solutions: ${log.solution}
-Productivity: ${log.productivity}/10
-Confidence: ${log.confidence}/10
-Stress: ${log.stress}/10
+Productivity: ${log.productivity}/5 (${scoreToPercent(log.productivity)}%)
+Confidence: ${log.confidence}/5 (${scoreToPercent(log.confidence)}%)
+Stress: ${log.stress}/5 (${scoreToPercent(log.stress)}%)
 Tomorrow plan: ${log.tomorrow_plan}
 `;
 
@@ -204,10 +191,10 @@ export const generateWeeklyReflection = async (
   profile: Profile | null,
   logs: DailyLogWithAnalysis[]
 ): Promise<GeneratedWeeklyReflection> => {
-  const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
+  const apiKey = await getGeminiApiKey();
 
   if (!apiKey) {
-    throw new Error('Missing Gemini API key.');
+    throw new Error('Add your Gemini API key in Settings before using AI generation.');
   }
 
   const logText = logs
@@ -222,9 +209,9 @@ Work done: ${log.task}
 Learning: ${log.learning}
 Challenges: ${log.challenge}
 Solutions: ${log.solution}
-Productivity: ${log.productivity}/10
-Confidence: ${log.confidence}/10
-Stress: ${log.stress}/10
+Productivity: ${log.productivity}/5 (${scoreToPercent(log.productivity)}%)
+Confidence: ${log.confidence}/5 (${scoreToPercent(log.confidence)}%)
+Stress: ${log.stress}/5 (${scoreToPercent(log.stress)}%)
 AI summary: ${analysis?.professional_summary ?? 'Not available'}
 AI weaknesses: ${(analysis?.weaknesses ?? []).join(', ') || 'Not available'}
 Mentor feedback: ${feedback.map((item) => item.feedback).join(' | ') || 'None'}
@@ -244,6 +231,11 @@ JSON schema:
   "recurring_weaknesses": ["Recurring weakness"],
   "suggestions": ["Specific suggestion for next week"]
 }
+
+Reflection rules:
+- Treat productivity, confidence, and stress as 1-5 ratings and use the percentage beside each score for interpretation.
+- Preserve technical specificity when logs mention implementation, tools, debugging, architecture, analysis, or delivery. Use supportive non-technical coaching when logs are primarily emotional.
+- Tie improvements, recurring weaknesses, and suggestions to Amazon Leadership Principles where relevant, especially Ownership, Learn and Be Curious, Dive Deep, Bias for Action, Insist on the Highest Standards, Earn Trust, and Deliver Results.
 
 User context:
 Name: ${profile?.name ?? 'Unknown'}
@@ -285,120 +277,4 @@ ${logText}
   }
 
   return normalizeWeeklyReflection(JSON.parse(extractJson(text)));
-};
-
-export const generateInternshipReport = async ({
-  profile,
-  logs,
-  weeklyReflections,
-}: {
-  profile: Profile | null;
-  logs: DailyLogWithAnalysis[];
-  weeklyReflections: WeeklyReflection[];
-}): Promise<GeneratedInternshipReport> => {
-  const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
-
-  if (!apiKey) {
-    throw new Error('Missing Gemini API key.');
-  }
-
-  const logText = logs
-    .map((log, index) => {
-      const analysis = Array.isArray(log.ai_analysis) ? log.ai_analysis[0] : log.ai_analysis;
-      const feedback = Array.isArray(log.mentor_feedback) ? log.mentor_feedback : log.mentor_feedback ? [log.mentor_feedback] : [];
-
-      return `
-Entry ${index + 1}
-Date: ${log.created_at}
-Work: ${log.task}
-Learning: ${log.learning}
-Challenge: ${log.challenge}
-Solution: ${log.solution}
-Tomorrow plan: ${log.tomorrow_plan}
-AI summary: ${analysis?.professional_summary ?? 'Not available'}
-Skills: ${(analysis?.skills ?? []).join(', ') || 'Not available'}
-Weaknesses: ${(analysis?.weaknesses ?? []).join(', ') || 'Not available'}
-Suggestions: ${(analysis?.suggestions ?? []).join(', ') || 'Not available'}
-Resume bullet: ${analysis?.resume_bullet ?? 'Not available'}
-Mentor feedback: ${feedback.map((item) => item.feedback).join(' | ') || 'None'}
-`;
-    })
-    .join('\n');
-
-  const weeklyText = weeklyReflections
-    .map(
-      (reflection) => `
-Week ${reflection.week_number}
-Summary: ${reflection.weekly_summary ?? 'Not available'}
-Improvements: ${(reflection.improvements ?? []).join(', ') || 'Not available'}
-Recurring weaknesses: ${(reflection.recurring_weaknesses ?? []).join(', ') || 'Not available'}
-Suggestions: ${(reflection.suggestions ?? []).join(', ') || 'Not available'}
-`
-    )
-    .join('\n');
-
-  const prompt = `
-You are WorkoWork, an AI assistant that creates professional internship reports.
-
-Return ONLY valid JSON. No markdown. No commentary.
-
-JSON schema:
-{
-  "title": "Internship Report title",
-  "introduction": "Professional introduction paragraph.",
-  "objectives": ["Objective"],
-  "work_completed": ["Meaningful work item"],
-  "challenges": ["Challenge and how it was approached"],
-  "learnings": ["Learning"],
-  "growth_summary": "Reflective growth paragraph.",
-  "conclusion": "Professional conclusion paragraph.",
-  "resume_bullets": ["Resume-ready bullet"]
-}
-
-Use a professional but honest tone. Do not invent employer confidential details. Prefer concrete work from the logs.
-
-Internship context:
-Name: ${profile?.name ?? 'Unknown'}
-Role: ${profile?.role ?? 'Intern'}
-Company: ${profile?.company ?? 'Unknown'}
-Duration: ${profile?.duration ?? 'Unknown'}
-Goal: ${profile?.goal ?? 'Not provided'}
-
-Weekly reflections:
-${weeklyText || 'No weekly reflections available.'}
-
-Chronological logs:
-${logText || 'No logs available.'}
-`;
-
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.35,
-          responseMimeType: 'application/json',
-        },
-      }),
-    }
-  );
-
-  if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || 'Gemini report request failed.');
-  }
-
-  const data = await response.json();
-  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-  if (typeof text !== 'string' || !text.trim()) {
-    throw new Error('Gemini returned an empty report response.');
-  }
-
-  return normalizeInternshipReport(JSON.parse(extractJson(text)));
 };

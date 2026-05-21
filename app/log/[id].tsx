@@ -64,7 +64,7 @@ export default function LogDetailScreen() {
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.date}>{formatFullDate(log.created_at)}</Text>
-      <Text style={styles.title}>Raw Entry</Text>
+      <Text style={styles.title}>Log Entry</Text>
 
       <Section title="Work Done">{log.task}</Section>
       <Section title="Learning">{log.learning}</Section>

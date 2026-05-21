@@ -6,5 +6,7 @@ export type RootStackParamList = {
   AddLog: undefined;
   Dashboard: undefined;
   Report: undefined;
+  Timeline: undefined;
+  Settings: undefined;
   LogDetail: { id: string };
 };

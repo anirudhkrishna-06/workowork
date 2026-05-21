@@ -15,8 +15,8 @@ import { useAuth } from '../context/AuthContext';
 import { RootStackParamList } from '../navigation/types';
 import { retryLogAnalysis } from '../services/aiAnalysis';
 import { supabase } from '../services/supabase';
-import { colors } from '../styles/theme';
 import { AiAnalysis, DailyLogWithAnalysis, MentorFeedback } from '../types/workowork';
+import { scoreToPercent } from '../utils/scores';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'LogDetail'>;
 
@@ -94,15 +94,11 @@ function AnalysisList({ label, items }: { label: string; items?: string[] | null
 function ScorePill({ value, label }: { value: number; label: string }) {
   return (
     <View style={styles.scorePill}>
-      <Text style={styles.scorePillValue}>{value}</Text>
-      <Text style={styles.scorePillSlash}>/10</Text>
+      <Text style={styles.scorePillValue}>{scoreToPercent(value)}</Text>
+      <Text style={styles.scorePillSlash}>%</Text>
       <Text style={styles.scorePillLabel}>{label}</Text>
     </View>
   );
-}
-
-function SectionDivider() {
-  return <View style={styles.divider} />;
 }
 
 function AiAnalysisContent({
@@ -317,7 +313,7 @@ export default function LogDetailScreen({ navigation, route }: Props) {
       <View style={styles.card}>
         <View style={styles.cardAccentBar} />
         <View style={styles.cardBody}>
-          <Text style={styles.cardSectionLabel}>Raw Entry</Text>
+          <Text style={styles.cardSectionLabel}>Log Entry</Text>
           <EntryField label="Work done" value={log.task} />
           <EntryField label="Learning" value={log.learning} />
           <EntryField label="Challenges" value={log.challenge} />
@@ -412,7 +408,7 @@ const styles = StyleSheet.create({
   backText: { fontSize: 14, color: MUTED, fontWeight: '600', letterSpacing: 0.2 },
 
   // Header
-  headerBlock: { marginBottom: 24 },
+  headerBlock: { marginBottom: 24, paddingRight: 56 },
   dateLabel: {
     fontSize: 11,
     color: MUTED,

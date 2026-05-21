@@ -13,8 +13,6 @@ import {
 } from 'react-native';
 import { RootStackParamList } from '../navigation/types';
 import { supabase } from '../services/supabase';
-import { colors } from '../styles/theme';
-
 type Props = NativeStackScreenProps<RootStackParamList, 'Login'>;
 
 export default function LoginScreen({ navigation }: Props) {
