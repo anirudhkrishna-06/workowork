@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import {
   ActivityIndicator,
@@ -8,21 +8,36 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  View,
 } from 'react-native';
 
 import { getGeminiApiKey, saveGeminiApiKey } from '../services/userSettings';
+import {
+  acknowledgeGeminiSidebarAlert,
+  dismissGeminiErrorCard,
+  getVisibleGeminiErrorLog,
+  subscribeToGeminiErrorChanges,
+} from '../services/geminiAlerts';
 import { colors } from '../styles/theme';
+
+type VisibleError = Awaited<ReturnType<typeof getVisibleGeminiErrorLog>>;
 
 export default function SettingsScreen() {
   const [geminiKey, setGeminiKey] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [geminiError, setGeminiError] = useState<VisibleError>(null);
+
+  const loadGeminiError = useCallback(async () => {
+    setGeminiError(await getVisibleGeminiErrorLog());
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
       let mounted = true;
 
       setLoading(true);
+      acknowledgeGeminiSidebarAlert();
       getGeminiApiKey()
         .then((key) => {
           if (mounted) setGeminiKey(key ?? '');
@@ -30,12 +45,23 @@ export default function SettingsScreen() {
         .finally(() => {
           if (mounted) setLoading(false);
         });
+      loadGeminiError();
 
       return () => {
         mounted = false;
       };
-    }, [])
+    }, [loadGeminiError])
   );
+
+  useEffect(() => {
+    const unsubscribe = subscribeToGeminiErrorChanges(() => {
+      loadGeminiError();
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [loadGeminiError]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -47,6 +73,11 @@ export default function SettingsScreen() {
       Alert.alert('Save failed', 'Could not save the Gemini API key on this device.');
     }
     setSaving(false);
+  };
+
+  const handleDismissError = async () => {
+    await dismissGeminiErrorCard();
+    setGeminiError(null);
   };
 
   if (loading) {
@@ -73,6 +104,18 @@ export default function SettingsScreen() {
       <Pressable disabled={saving} onPress={handleSave} style={({ pressed }) => [styles.saveButton, pressed && styles.saveButtonPressed]}>
         {saving ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.saveButtonText}>Save</Text>}
       </Pressable>
+
+      {geminiError && (
+        <View style={styles.errorCard}>
+          <Pressable onPress={handleDismissError} style={({ pressed }) => [styles.errorCloseButton, pressed && styles.errorCloseButtonPressed]}>
+            <Text style={styles.errorCloseText}>×</Text>
+          </Pressable>
+          <Text style={styles.errorTitle}>Gemini issue detected</Text>
+          <Text style={styles.errorSource}>{geminiError.source === 'daily-analysis' ? 'Daily analysis' : geminiError.source === 'weekly-reflection' ? 'Weekly reflection' : 'Gemini'}</Text>
+          <Text style={styles.errorMessage}>{geminiError.message}</Text>
+          {geminiError.details ? <Text style={styles.errorDetails}>{geminiError.details}</Text> : null}
+        </View>
+      )}
     </ScrollView>
   );
 }
@@ -121,6 +164,61 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '800',
+  },
+  errorCard: {
+    backgroundColor: '#FFF3F3',
+    borderColor: '#E6B9B9',
+    borderRadius: 24,
+    borderWidth: 1,
+    marginTop: 16,
+    padding: 16,
+    position: 'relative',
+  },
+  errorCloseButton: {
+    alignItems: 'center',
+    height: 28,
+    justifyContent: 'center',
+    position: 'absolute',
+    right: 10,
+    top: 10,
+    width: 28,
+  },
+  errorCloseButtonPressed: {
+    opacity: 0.7,
+  },
+  errorCloseText: {
+    color: colors.primary,
+    fontSize: 18,
+    fontWeight: '700',
+    lineHeight: 18,
+  },
+  errorTitle: {
+    color: colors.primary,
+    fontSize: 15,
+    fontWeight: '800',
+    marginBottom: 4,
+    paddingRight: 34,
+  },
+  errorSource: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: '700',
+    marginBottom: 8,
+    opacity: 0.72,
+    textTransform: 'uppercase',
+  },
+  errorMessage: {
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 20,
+  },
+  errorDetails: {
+    color: colors.primary,
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 8,
+    opacity: 0.82,
   },
   title: {
     color: colors.primary,

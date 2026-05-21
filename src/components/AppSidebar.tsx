@@ -1,6 +1,6 @@
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import React, { PropsWithChildren, useRef, useState } from 'react';
+import React, { PropsWithChildren, useEffect, useRef, useState } from 'react';
 import {
   Animated,
   Pressable,
@@ -11,6 +11,7 @@ import {
 
 import { useAuth } from '../context/AuthContext';
 import { RootStackParamList } from '../navigation/types';
+import { acknowledgeGeminiSidebarAlert, hasGeminiSidebarAlert, subscribeToGeminiErrorChanges } from '../services/geminiAlerts';
 
 const MENU_WIDTH = 264;
 const INK = '#0D0D0D';
@@ -34,7 +35,29 @@ export default function AppSidebar({ children }: PropsWithChildren) {
   const route = useRoute();
   const { signOut } = useAuth();
   const [open, setOpen] = useState(false);
+  const [hasAlert, setHasAlert] = useState(false);
   const progress = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    let active = true;
+
+    const refresh = async () => {
+      setHasAlert(await hasGeminiSidebarAlert());
+    };
+
+    refresh();
+
+    const unsubscribe = subscribeToGeminiErrorChanges(() => {
+      if (active) {
+        refresh();
+      }
+    });
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
 
   const setMenuOpen = (nextOpen: boolean) => {
     setOpen(nextOpen);
@@ -78,6 +101,10 @@ export default function AppSidebar({ children }: PropsWithChildren) {
 
   const navigateTo = (nextRoute: AppRoute) => {
     setMenuOpen(false);
+    if (nextRoute === 'Settings') {
+      acknowledgeGeminiSidebarAlert();
+      setHasAlert(false);
+    }
     navigation.navigate(nextRoute);
   };
 
@@ -130,6 +157,7 @@ export default function AppSidebar({ children }: PropsWithChildren) {
                   ]}
                 >
                   <Text style={[styles.menuText, active && styles.menuTextActive]}>{item.label}</Text>
+                  {item.route === 'Settings' && hasAlert && <View style={styles.menuAlertDot} />}
                 </Pressable>
               </Animated.View>
             );
@@ -231,6 +259,7 @@ const styles = StyleSheet.create({
   },
   menuItem: {
     borderRadius: 36,
+    position: 'relative',
     paddingHorizontal: 16,
     paddingVertical: 14,
   },
@@ -249,6 +278,15 @@ const styles = StyleSheet.create({
   },
   menuTextActive: {
     color: INK,
+  },
+  menuAlertDot: {
+    backgroundColor: '#D94A4A',
+    borderRadius: 5,
+    height: 10,
+    position: 'absolute',
+    right: 14,
+    top: 16,
+    width: 10,
   },
   sidebarFooter: {
     flex: 1,

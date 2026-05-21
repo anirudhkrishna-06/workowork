@@ -105,20 +105,39 @@ function AiAnalysisContent({
   analysis,
   retrying,
   onRetry,
+  refreshing,
+  onRefresh,
 }: {
   analysis: AiAnalysis | null;
   retrying: boolean;
+  refreshing: boolean;
   onRetry: () => void;
+  onRefresh: () => void;
 }) {
   if (!analysis || analysis.status === 'pending' || analysis.status === 'processing') {
     return (
-      <View style={styles.aiWaiting}>
-        <View style={styles.aiWaitingDot} />
-        <Text style={styles.aiWaitingText}>
-          {analysis?.status === 'processing'
-            ? 'Processing your entry…'
-            : 'Analysis pending. Check back shortly.'}
-        </Text>
+      <View>
+        <View style={styles.aiWaiting}>
+          <View style={styles.aiWaitingDot} />
+          <Text style={styles.aiWaitingText}>
+            {analysis?.status === 'processing'
+              ? 'Processing your entry…'
+              : 'Analysis pending. Check back shortly.'}
+          </Text>
+        </View>
+        {analysis?.status === 'processing' && (
+          <Pressable
+            disabled={refreshing}
+            onPress={onRefresh}
+            style={({ pressed }) => [styles.refreshButton, pressed && styles.refreshButtonPressed]}
+          >
+            {refreshing ? (
+              <ActivityIndicator color={WHITE} />
+            ) : (
+              <Text style={styles.refreshButtonText}>Refresh Status</Text>
+            )}
+          </Pressable>
+        )}
       </View>
     );
   }
@@ -181,6 +200,7 @@ export default function LogDetailScreen({ navigation, route }: Props) {
   const [log, setLog] = useState<DailyLogWithAnalysis | null>(null);
   const [loading, setLoading] = useState(true);
   const [retrying, setRetrying] = useState(false);
+  const [refreshingAnalysis, setRefreshingAnalysis] = useState(false);
   const [feedback, setFeedback] = useState('');
   const [savingFeedback, setSavingFeedback] = useState(false);
 
@@ -206,6 +226,15 @@ export default function LogDetailScreen({ navigation, route }: Props) {
     await retryLogAnalysis(profile, log);
     await loadLog();
     setRetrying(false);
+  };
+
+  const handleRefreshAnalysis = async () => {
+    setRefreshingAnalysis(true);
+    try {
+      await loadLog();
+    } finally {
+      setRefreshingAnalysis(false);
+    }
   };
 
   const handleSaveFeedback = async () => {
@@ -347,7 +376,9 @@ export default function LogDetailScreen({ navigation, route }: Props) {
           <AiAnalysisContent
             analysis={analysis}
             retrying={retrying}
+            refreshing={refreshingAnalysis}
             onRetry={handleRetry}
+            onRefresh={handleRefreshAnalysis}
           />
         </View>
       </View>
@@ -517,6 +548,20 @@ const styles = StyleSheet.create({
     backgroundColor: YELLOW,
   },
   aiWaitingText: { fontSize: 14, color: MUTED, fontWeight: '400' },
+
+  refreshButton: {
+    backgroundColor: INK,
+    alignSelf: 'flex-end',
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginTop: 10,
+    minWidth: 110,
+  },
+  refreshButtonPressed: { backgroundColor: '#2A2A28' },
+  refreshButtonText: { color: WHITE, fontSize: 11, fontWeight: '700', letterSpacing: 0.2 },
 
   // Analysis fields
   analysisField: { marginBottom: 18 },
