@@ -18,12 +18,13 @@ const WHITE = '#FFFFFF';
 const MUTED = '#8A8A82';
 const BORDER = '#EBEBEA';
 
-type AppRoute = 'Home' | 'Dashboard' | 'Report' | 'Timeline' | 'Settings';
+type AppRoute = 'Home' | 'Dashboard' | 'Report' | 'Tasks' | 'Timeline' | 'Settings';
 
 const items: { label: string; route: AppRoute }[] = [
   { label: 'Home', route: 'Home' },
   { label: 'Dashboard', route: 'Dashboard' },
   { label: 'Reports', route: 'Report' },
+  { label: 'Tasks', route: 'Tasks' },
   { label: 'Timeline', route: 'Timeline' },
   { label: 'Settings', route: 'Settings' },
 ];

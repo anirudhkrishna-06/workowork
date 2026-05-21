@@ -16,6 +16,7 @@ import ReportScreen from '../screens/ReportScreen';
 import AppSidebar from '../components/AppSidebar';
 import TimelineScreen from '../screens/TimelineScreen';
 import SettingsScreen from '../screens/SettingsScreen';
+import TaskScreen from '../screens/TaskScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -73,6 +74,13 @@ export default function AppNavigator() {
             {() => (
               <AppSidebar>
                 <ReportScreen />
+              </AppSidebar>
+            )}
+          </Stack.Screen>
+          <Stack.Screen name="Tasks" options={{ title: 'Tasks', headerShown: false }}>
+            {() => (
+              <AppSidebar>
+                <TaskScreen />
               </AppSidebar>
             )}
           </Stack.Screen>
