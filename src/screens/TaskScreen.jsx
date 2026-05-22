@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Animated,
   Easing,
+  LayoutAnimation,
   SectionList,
   KeyboardAvoidingView,
   Modal,
@@ -13,6 +14,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  UIManager,
   View,
 } from 'react-native';
 
@@ -32,11 +34,15 @@ const DATE_OPTIONS = [
 ];
 
 const TIME_OPTIONS = [
-  { key: 'morning', glyph: '⛅', selected: '#8ECDF5' },
-  { key: 'afternoon', glyph: '☀', selected: '#F59A38' },
-  { key: 'evening', glyph: '◑', selected: '#E9C93A' },
-  { key: 'night', glyph: '☾', selected: '#102F78' },
+  { key: 'morning', icon: 'partly-sunny-outline', selected: '#047ace' },
+  { key: 'afternoon', icon: 'sunny-outline', selected: '#8f0000' },
+  { key: 'evening', icon: 'contrast-outline', selected: '#E9C93A' },
+  { key: 'night', icon: 'moon-outline', selected: '#102F78' },
 ];
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 function hexToRgb(hex) {
   const h = hex.replace('#', '');
@@ -52,7 +58,7 @@ function isColorDark(hex) {
     const { r, g, b } = hexToRgb(hex);
     const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
     return luminance < 0.6;
-  } catch (e) {
+  } catch (_e) {
     return false;
   }
 }
@@ -70,25 +76,19 @@ function addDays(date, days) {
   return next;
 }
 
+function endOfWeek(date) {
+  const next = new Date(date);
+  const day = next.getDay();
+  const daysToSunday = day === 0 ? 0 : 7 - day;
+  next.setDate(next.getDate() + daysToSunday);
+  return next;
+}
+
 function targetDateFor(option) {
   const today = new Date();
   if (option === 'tomorrow') return addDays(today, 1);
-  if (option === 'week') {
-    const day = today.getDay();
-    const daysToFriday = day <= 5 ? 5 - day : 0;
-    return addDays(today, daysToFriday);
-  }
+  if (option === 'week') return endOfWeek(today);
   return today;
-}
-
-function formatDateLabel(value) {
-  const date = new Date(`${value}T12:00:00`);
-  const today = dateKey(new Date());
-  const tomorrow = dateKey(addDays(new Date(), 1));
-
-  if (value === today) return 'Today';
-  if (value === tomorrow) return 'Tomorrow';
-  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(date);
 }
 
 function cardTone(date) {
@@ -169,6 +169,10 @@ function TaskCard({ item, active, onShowComplete, onComplete, onDelete }) {
     inputRange: [0, 1],
     outputRange: [0.72, 1],
   });
+  const checkOpacity = completeProgress.interpolate({
+    inputRange: [0, 1, 2],
+    outputRange: [0, 1, 1],
+  });
   const contentOpacity = completeProgress.interpolate({
     inputRange: [0, 1],
     outputRange: [1, 0.12],
@@ -235,10 +239,10 @@ function TaskCard({ item, active, onShowComplete, onComplete, onDelete }) {
                 {(() => {
                   const opt = TIME_OPTIONS.find((o) => o.key === item.time) || TIME_OPTIONS[0];
                   const bg = opt.selected;
-                  const glyphColor = isColorDark(bg) ? WHITE : INK;
+                  const iconColor = isColorDark(bg) ? WHITE : INK;
                   return (
                     <View style={[styles.timeBadge, { backgroundColor: bg, borderColor: bg }]}> 
-                      <Text style={[styles.timeGlyph, { color: glyphColor }]}>{opt.glyph}</Text>
+                      <Ionicons name={opt.icon} size={19} color={iconColor} />
                     </View>
                   );
                 })()}
@@ -247,7 +251,7 @@ function TaskCard({ item, active, onShowComplete, onComplete, onDelete }) {
 
             {active && (
               <Pressable onPress={handleComplete} style={styles.checkHitbox}>
-                  <Animated.View style={[styles.checkBubble, finishing && styles.checkBubbleDone, { opacity: completeProgress, transform: [{ scale: checkScale }] }] }>
+                  <Animated.View style={[styles.checkBubble, finishing && styles.checkBubbleDone, { opacity: checkOpacity, transform: [{ scale: checkScale }] }] }>
                     <Ionicons name="checkmark" size={34} color={finishing ? WHITE : GREEN} />
                   </Animated.View>
               </Pressable>
@@ -255,6 +259,34 @@ function TaskCard({ item, active, onShowComplete, onComplete, onDelete }) {
           </Animated.View>
         </Pressable>
       </Animated.View>
+    </Animated.View>
+  );
+}
+
+function AnimatedOption({ accessibilityLabel, children, onPress, style }) {
+  const scale = useRef(new Animated.Value(1)).current;
+
+  const animateTo = (value) => {
+    Animated.spring(scale, {
+      toValue: value,
+      damping: 14,
+      mass: 0.45,
+      stiffness: 260,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  return (
+    <Animated.View style={{ transform: [{ scale }] }}>
+      <Pressable
+        accessibilityLabel={accessibilityLabel}
+        onPress={onPress}
+        onPressIn={() => animateTo(0.93)}
+        onPressOut={() => animateTo(1)}
+        style={style}
+      >
+        {children}
+      </Pressable>
     </Animated.View>
   );
 }
@@ -269,6 +301,7 @@ export default function TaskScreen() {
   const [dateOption, setDateOption] = useState('today');
   const [timeOption, setTimeOption] = useState('morning');
   const [activeCompleteId, setActiveCompleteId] = useState(null);
+  const [overdueOpen, setOverdueOpen] = useState(false);
 
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEY)
@@ -311,22 +344,35 @@ export default function TaskScreen() {
   const sections = useMemo(() => {
     const todayKey = dateKey(new Date());
     const tomorrowKey = dateKey(addDays(new Date(), 1));
-    const groups = { Today: [], Tomorrow: [], 'This Week': [] };
+    const weekEndKey = dateKey(endOfWeek(new Date()));
+    const groups = { Overdue: [], Today: [], Tomorrow: [], 'This Week': [], Later: [] };
 
     visibleTasks.forEach((task) => {
-      if (task.date === todayKey) groups.Today.push(task);
+      if (task.date < todayKey) groups.Overdue.push(task);
+      else if (task.date === todayKey) groups.Today.push(task);
       else if (task.date === tomorrowKey) groups.Tomorrow.push(task);
-      else {
+      else if (task.date <= weekEndKey) {
         groups['This Week'].push(task);
+      } else {
+        groups.Later.push(task);
       }
     });
 
     const out = [];
+    if (groups.Overdue.length) {
+      out.push({
+        title: 'Overdue',
+        data: overdueOpen ? groups.Overdue : [],
+        count: groups.Overdue.length,
+        collapsible: true,
+      });
+    }
     if (groups.Today.length) out.push({ title: 'Today', data: groups.Today });
     if (groups.Tomorrow.length) out.push({ title: 'Tomorrow', data: groups.Tomorrow });
     if (groups['This Week'].length) out.push({ title: 'This Week', data: groups['This Week'] });
+    if (groups.Later.length) out.push({ title: 'Later', data: groups.Later });
     return out;
-  }, [visibleTasks]);
+  }, [overdueOpen, visibleTasks]);
 
   const resetForm = () => {
     setTaskName('');
@@ -364,12 +410,19 @@ export default function TaskScreen() {
 
   const deleteTask = useCallback((id) => {
     setActiveCompleteId((current) => (current === id ? null : current));
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setTasks((current) => current.filter((task) => task.id !== id));
   }, []);
 
   const completeTask = useCallback((id) => {
     setActiveCompleteId(null);
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setTasks((current) => current.filter((task) => task.id !== id));
+  }, []);
+
+  const toggleOverdue = useCallback(() => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setOverdueOpen((current) => !current);
   }, []);
 
   return (
@@ -377,6 +430,10 @@ export default function TaskScreen() {
       <Animated.View style={[styles.contentMotion, pageMotion]}>
         <SectionList
           contentContainerStyle={styles.container}
+          keyboardShouldPersistTaps="handled"
+          onTouchStart={() => {
+            if (activeCompleteId) setActiveCompleteId(null);
+          }}
           sections={sections}
           keyExtractor={(item) => item.id}
           ListHeaderComponent={
@@ -385,17 +442,33 @@ export default function TaskScreen() {
               <Text style={styles.subtitle}>{taskCountLabel(visibleTasks.length)}</Text>
             </View>
           }
-          renderSectionHeader={({ section: { title } }) => (
-            <Text style={styles.sectionHeader}>{title}</Text>
-          )}
+          renderSectionHeader={({ section }) =>
+            section.collapsible ? (
+              <Pressable onPress={toggleOverdue} style={styles.overdueHeader}>
+                <Text style={styles.sectionHeader}>{section.title}</Text>
+                <View style={styles.overdueRight}>
+                  <Text style={styles.overdueCount}>{section.count}</Text>
+                  <Ionicons name={overdueOpen ? 'chevron-up' : 'chevron-down'} size={16} color={MUTED} />
+                </View>
+              </Pressable>
+            ) : (
+              <Text style={styles.sectionHeader}>{section.title}</Text>
+            )
+          }
           renderItem={({ item }) => (
-            <TaskCard
-              active={activeCompleteId === item.id}
-              item={item}
-              onComplete={completeTask}
-              onDelete={deleteTask}
-              onShowComplete={setActiveCompleteId}
-            />
+            <View
+              onTouchStart={(event) => {
+                event.stopPropagation();
+              }}
+            >
+              <TaskCard
+                active={activeCompleteId === item.id}
+                item={item}
+                onComplete={completeTask}
+                onDelete={deleteTask}
+                onShowComplete={setActiveCompleteId}
+              />
+            </View>
           )}
           ListEmptyComponent={
             <View style={styles.emptyState}>
@@ -429,13 +502,13 @@ export default function TaskScreen() {
               {DATE_OPTIONS.map((option) => {
                 const selected = dateOption === option.key;
                 return (
-                  <Pressable
+                  <AnimatedOption
                     key={option.key}
                     onPress={() => setDateOption(option.key)}
                     style={[styles.dateChip, selected && styles.dateChipSelected]}
                   >
                     <Text style={[styles.dateChipText, selected && styles.dateChipTextSelected]}>{option.label}</Text>
-                  </Pressable>
+                  </AnimatedOption>
                 );
               })}
             </View>
@@ -444,9 +517,9 @@ export default function TaskScreen() {
               {TIME_OPTIONS.map((option) => {
                 const selected = timeOption === option.key;
                 const bg = selected ? option.selected : INK;
-                const glyphColor = isColorDark(bg) ? WHITE : INK;
+                const iconColor = isColorDark(bg) ? WHITE : INK;
                 return (
-                  <Pressable
+                  <AnimatedOption
                     accessibilityLabel={option.key}
                     key={option.key}
                     onPress={() => setTimeOption(option.key)}
@@ -458,8 +531,8 @@ export default function TaskScreen() {
                       },
                     ]}
                   >
-                      <Text style={[styles.timeGlyph, { color: glyphColor }]}>{option.glyph}</Text>
-                  </Pressable>
+                      <Ionicons name={option.icon} size={21} color={iconColor} />
+                  </AnimatedOption>
                 );
               })}
             </View>
@@ -484,8 +557,8 @@ const styles = StyleSheet.create({
   cardWrap: { overflow: 'hidden' },
   deleteBack: {
     alignItems: 'flex-start',
-    backgroundColor: '#E84C4C',
-    borderRadius: 18,
+    backgroundColor: '#e84c4c83',
+    borderRadius: 38,
     bottom: 0,
     justifyContent: 'center',
     left: 0,
@@ -496,16 +569,16 @@ const styles = StyleSheet.create({
   },
   taskCard: {
     alignItems: 'center',
-    borderRadius: 18,
-    borderWidth: 1,
+    borderRadius: 38,
+    borderWidth: 0.2,
     flexDirection: 'row',
-    minHeight: 82,
+    minHeight: 42,
     overflow: 'hidden',
     paddingHorizontal: 18,
-    paddingVertical: 12,
+    paddingVertical: 8,
   },
   taskMain: { alignItems: 'center', flex: 1, flexDirection: 'row', gap: 12 },
-  taskName: { color: INK, flex: 1, fontSize: 18, fontWeight: '800', lineHeight: 22 },
+  taskName: { color: INK, flex: 1, fontSize: 18, fontWeight: '400', lineHeight: 22 },
   taskMeta: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -521,7 +594,7 @@ const styles = StyleSheet.create({
     backgroundColor: WHITE,
     borderColor: '#E2E2DA',
     borderRadius: 34,
-    borderWidth: 1,
+    borderWidth: 0,
     height: 68,
     justifyContent: 'center',
     shadowColor: '#000',
@@ -570,25 +643,25 @@ const styles = StyleSheet.create({
     shadowRadius: 26,
     width: '100%',
   },
-  modalTitle: { color: INK, fontSize: 22, fontWeight: '800', marginBottom: 18 },
+  modalTitle: { color: INK, fontSize: 18, fontWeight: '600', marginBottom: 18 },
   input: {
     borderColor: BORDER,
-    borderRadius: 18,
+    borderRadius: 38,
     borderWidth: 1,
     color: INK,
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 14,
+    fontWeight: '500',
     marginBottom: 18,
     width: '100%',
     paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingVertical: 12,
   },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'center', marginBottom: 18, width: '100%' },
   dateChip: {
     backgroundColor: WHITE,
     borderColor: INK,
     borderRadius: 33,
-    borderWidth: 1,
+    borderWidth: 0.4,
     paddingHorizontal: 14,
     paddingVertical: 8,
   },
@@ -613,16 +686,31 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     width: 36,
   },
-  timeGlyph: { fontSize: 20, fontWeight: '900' },
   sectionHeader: { color: MUTED, fontSize: 13, fontWeight: '900', marginBottom: 8, marginTop: 12 },
+  overdueHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  overdueRight: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 6,
+    marginTop: 12,
+  },
+  overdueCount: {
+    color: MUTED,
+    fontSize: 12,
+    fontWeight: '800',
+  },
 
   addButton: {
     alignItems: 'center',
     backgroundColor: INK,
     borderRadius: 34,
     width: '100%',
-    paddingVertical: 15,
+    paddingVertical: 12,
   },
   addButtonPressed: { opacity: 0.8 },
-  addButtonText: { color: WHITE, fontSize: 15, fontWeight: '800' },
+  addButtonText: { color: WHITE, fontSize: 13, fontWeight: '600' },
 });

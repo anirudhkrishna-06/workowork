@@ -69,7 +69,6 @@ export default function SignupScreen({ navigation }: Props) {
     >
       <View style={styles.header}>
         <Text style={styles.title}>Create Account</Text>
-        <Text style={styles.subtitle}>A quiet place for your internship record.</Text>
       </View>
 
       <View style={styles.form}>
@@ -131,10 +130,12 @@ const styles = StyleSheet.create({
   },
   primaryButton: {
     alignItems: 'center',
+    alignSelf: 'center',
     backgroundColor: colors.primary,
     borderRadius: 32,
     justifyContent: 'center',
     minHeight: 42,
+    width: 220,
   },
   primaryButtonText: {
     color: '#FFFFFF',

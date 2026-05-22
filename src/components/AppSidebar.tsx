@@ -3,6 +3,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import React, { PropsWithChildren, useEffect, useRef, useState } from 'react';
 import {
   Animated,
+  Image,
   Pressable,
   StyleSheet,
   Text,
@@ -134,7 +135,12 @@ export default function AppSidebar({ children }: PropsWithChildren) {
           },
         ]}
       >
-        <Text style={styles.sidebarTitle}>WorkoWork</Text>
+        <Image
+          accessibilityLabel="WorkoWork"
+          resizeMode="contain"
+          source={require('../../assets/images/icon.png')}
+          style={styles.sidebarLogo}
+        />
         <View style={styles.menuList}>
           {items.map((item, index) => {
             const active = route.name === item.route;
@@ -247,21 +253,21 @@ const styles = StyleSheet.create({
     shadowOffset: { width: -6, height: 0 },
     elevation: 8,
   },
-  sidebarTitle: {
-    color: INK,
-    fontSize: 24,
-    fontWeight: '800',
-    letterSpacing: -0.5,
-    marginBottom: 28,
+  sidebarLogo: {
+    alignSelf: 'center',
+    height: 184,
+    marginBottom: 0,
+    marginTop: -50,
+    width: 184,
   },
   menuList: {
-    gap: 8,
+    gap: 4,
   },
   menuItem: {
     borderRadius: 36,
     position: 'relative',
     paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingVertical: 12,
   },
   menuItemActive: {
     backgroundColor: '#F7F6F2',
@@ -274,7 +280,7 @@ const styles = StyleSheet.create({
   menuText: {
     color: MUTED,
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '500',
   },
   menuTextActive: {
     color: INK,
@@ -293,12 +299,14 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   logout: {
+    alignSelf: 'center',
     backgroundColor: INK,
     borderRadius: 38,
     paddingVertical: 15,
     alignItems: 'center',
     borderWidth: 1,
     borderColor: INK,
+    width: 172,
   },
   logoutText: {
     color: WHITE,

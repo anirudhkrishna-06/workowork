@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -49,10 +50,12 @@ export default function LoginScreen({ navigation }: Props) {
       <View style={styles.inner}>
         {/* Brand Section */}
         <View style={styles.brand}>
-          <Text style={styles.logo}>WorkoWork</Text>
-          <View style={styles.taglineRow}>
-            <Text style={styles.subtitle}>Reflect. Improve. Document.</Text>
-          </View>
+          <Image
+            accessibilityLabel="WorkoWork"
+            resizeMode="contain"
+            source={require('../../assets/images/icon.png')}
+            style={styles.logoImage}
+          />
         </View>
 
         {/* Form Section */}
@@ -149,7 +152,7 @@ const design = {
 const styles = StyleSheet.create({
   // ─── Shell ─────────────────────────────────────────────────────────────────
   container: {
-    backgroundColor: design.bg,
+    backgroundColor: '#ffffff',
     flex: 1,
   },
   topRule: {
@@ -169,35 +172,12 @@ const styles = StyleSheet.create({
 
   // ─── Brand ─────────────────────────────────────────────────────────────────
   brand: {
+    alignItems: 'center',
     marginBottom: 32,
   },
-  logo: {
-    color: design.ink,
-    fontFamily: design.logoFont,
-    fontSize: 38,
-    fontWeight: '700',
-    letterSpacing: -0.5,
-    lineHeight: 44,
-    alignContent: 'center',
-    margin: 0
-  },
-  taglineRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    marginTop: 2,
-    gap: 10,
-  },
-  taglineDash: {
-    backgroundColor: design.inkMuted,
-    height: 1,
-    width: 18,
-  },
-  subtitle: {
-    color: design.inkMuted,
-    fontSize: 13,
-    fontWeight: '400',
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
+  logoImage: {
+    height: 158,
+    width: 188,
   },
 
   // ─── Form ──────────────────────────────────────────────────────────────────
@@ -219,9 +199,9 @@ const styles = StyleSheet.create({
     backgroundColor: design.surface,
     borderColor: design.border,
     borderRadius: 32,
-    borderWidth: 1.5,
+    borderWidth: 0.8,
     color: design.ink,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '400',
     paddingHorizontal: 16,
     paddingVertical: 14,
@@ -238,6 +218,7 @@ const styles = StyleSheet.create({
 
   // ─── Buttons ───────────────────────────────────────────────────────────────
   buttonStack: {
+    alignItems: 'center',
     gap: 0,
     marginTop: 8,
   },
@@ -248,6 +229,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     minHeight: 44,
     marginBottom: 0,
+    width: 220,
   },
   primaryButtonLoading: {
     opacity: 0.55,
@@ -267,6 +249,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
     marginVertical: 20,
+    width: '100%',
   },
   dividerLine: {
     backgroundColor: design.rule,
@@ -287,13 +270,14 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     justifyContent: 'center',
     minHeight: 44,
+    width: 220,
   },
   secondaryButtonPressed: {
     backgroundColor: '#F5F5F2',
   },
   secondaryText: {
     color: design.inkMid,
-    fontSize: 15,
+    fontSize: 12,
     fontWeight: '500',
     letterSpacing: 0.2,
   },
