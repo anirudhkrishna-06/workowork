@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { generateLogAnalysis } from './gemini';
+import { recordGeminiError } from './geminiAlerts';
 import { debugLog, errorDetails } from '../utils/debug';
 import {
   AiAnalysis,
@@ -92,6 +93,18 @@ export async function processLogAnalysis(profile: Profile | null, log: LogAnalys
     debugLog('AI', 'Daily analysis completed and stored', { logId: log.id });
   } catch (error) {
     debugLog('AI', 'Daily analysis pipeline failed', { logId: log.id, error: errorDetails(error) });
+    const contextualError = error instanceof Error ? error : new Error(String(error));
+    contextualError.message = `Daily analysis failed for log ${log.id}: ${contextualError.message}`;
+
+    try {
+      await recordGeminiError('daily-analysis', contextualError);
+    } catch (recordError) {
+      debugLog('AI', 'Failed to record daily analysis error', {
+        logId: log.id,
+        error: errorDetails(recordError),
+      });
+    }
+
     const { error: failedError } = await supabase
       .from('ai_analysis')
       .upsert(

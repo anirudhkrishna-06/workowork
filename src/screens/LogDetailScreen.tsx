@@ -16,6 +16,7 @@ import { RootStackParamList } from '../navigation/types';
 import { retryLogAnalysis } from '../services/aiAnalysis';
 import { supabase } from '../services/supabase';
 import { AiAnalysis, DailyLogWithAnalysis, MentorFeedback } from '../types/workowork';
+import { debugLog } from '../utils/debug';
 import { scoreToPercent } from '../utils/scores';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'LogDetail'>;
@@ -229,8 +230,13 @@ export default function LogDetailScreen({ navigation, route }: Props) {
   };
 
   const handleRefreshAnalysis = async () => {
+    if (!log) return;
     setRefreshingAnalysis(true);
     try {
+      debugLog('AI', 'Refresh requested for daily analysis', { logId: route.params.id, status: analysis?.status });
+      if (analysis?.status === 'processing') {
+        await retryLogAnalysis(profile, log);
+      }
       await loadLog();
     } finally {
       setRefreshingAnalysis(false);
