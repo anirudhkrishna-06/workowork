@@ -186,7 +186,6 @@ Tomorrow plan: ${log.tomorrow_plan}
       jsonPreview: preview(jsonText),
       error,
     });
-    await recordGeminiError('daily-analysis', error);
     throw error;
   }
 };

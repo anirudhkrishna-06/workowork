@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Animated,
   Easing,
-  FlatList,
+  SectionList,
   KeyboardAvoidingView,
   Modal,
   PanResponder,
@@ -32,11 +32,30 @@ const DATE_OPTIONS = [
 ];
 
 const TIME_OPTIONS = [
-  { key: 'morning', icon: 'partly-sunny', selected: '#8ECDF5' },
-  { key: 'afternoon', icon: 'sunny', selected: '#F59A38' },
-  { key: 'evening', icon: 'contrast', selected: '#E9C93A' },
-  { key: 'night', icon: 'moon', selected: '#102F78' },
+  { key: 'morning', glyph: '⛅', selected: '#8ECDF5' },
+  { key: 'afternoon', glyph: '☀', selected: '#F59A38' },
+  { key: 'evening', glyph: '◑', selected: '#E9C93A' },
+  { key: 'night', glyph: '☾', selected: '#102F78' },
 ];
+
+function hexToRgb(hex) {
+  const h = hex.replace('#', '');
+  const bigint = parseInt(h, 16);
+  if (h.length === 6) {
+    return { r: (bigint >> 16) & 255, g: (bigint >> 8) & 255, b: bigint & 255 };
+  }
+  return { r: 0, g: 0, b: 0 };
+}
+
+function isColorDark(hex) {
+  try {
+    const { r, g, b } = hexToRgb(hex);
+    const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    return luminance < 0.6;
+  } catch (e) {
+    return false;
+  }
+}
 
 function dateKey(date) {
   const year = date.getFullYear();
@@ -76,9 +95,10 @@ function cardTone(date) {
   const today = dateKey(new Date());
   const tomorrow = dateKey(addDays(new Date(), 1));
 
-  if (date === today) return { backgroundColor: '#FFF9E8', borderColor: '#EFE7C8' };
-  if (date === tomorrow) return { backgroundColor: '#EFF8FF', borderColor: '#D9EAF5' };
-  return { backgroundColor: '#F4FBF1', borderColor: '#DFEDD9' };
+  // Use neutral white / grey tones for card backgrounds
+  if (date === today) return { backgroundColor: '#FFFFFF', borderColor: '#E9E9E9' };
+  if (date === tomorrow) return { backgroundColor: '#FAFAFA', borderColor: '#EFEFEF' };
+  return { backgroundColor: '#F7F7F8', borderColor: '#ECECEC' };
 }
 
 function taskCountLabel(count) {
@@ -149,6 +169,10 @@ function TaskCard({ item, active, onShowComplete, onComplete, onDelete }) {
     inputRange: [0, 1],
     outputRange: [0.72, 1],
   });
+  const contentOpacity = completeProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 0.12],
+  });
 
   const handleComplete = () => {
     setFinishing(true);
@@ -183,7 +207,7 @@ function TaskCard({ item, active, onShowComplete, onComplete, onDelete }) {
         styles.cardWrap,
         {
           opacity: removeProgress,
-          maxHeight: removeProgress.interpolate({ inputRange: [0, 1], outputRange: [0, 122] }),
+          maxHeight: removeProgress.interpolate({ inputRange: [0, 1], outputRange: [0, 106] }),
           marginBottom: removeProgress.interpolate({ inputRange: [0, 1], outputRange: [0, 12] }),
         },
       ]}
@@ -205,19 +229,27 @@ function TaskCard({ item, active, onShowComplete, onComplete, onDelete }) {
               },
             ]}
           >
-            <View style={styles.taskMain}>
+            <Animated.View style={[styles.taskMain, { opacity: contentOpacity }]}>
               <Text numberOfLines={2} style={styles.taskName}>{item.name}</Text>
               <View style={styles.taskMeta}>
-                <Text style={styles.datePill}>{formatDateLabel(item.date)}</Text>
-                <Ionicons name={TIME_OPTIONS.find((option) => option.key === item.time)?.icon ?? 'time'} size={16} color={INK} />
+                {(() => {
+                  const opt = TIME_OPTIONS.find((o) => o.key === item.time) || TIME_OPTIONS[0];
+                  const bg = opt.selected;
+                  const glyphColor = isColorDark(bg) ? WHITE : INK;
+                  return (
+                    <View style={[styles.timeBadge, { backgroundColor: bg, borderColor: bg }]}> 
+                      <Text style={[styles.timeGlyph, { color: glyphColor }]}>{opt.glyph}</Text>
+                    </View>
+                  );
+                })()}
               </View>
-            </View>
+            </Animated.View>
 
             {active && (
               <Pressable onPress={handleComplete} style={styles.checkHitbox}>
-                <Animated.View style={[styles.checkBubble, finishing && styles.checkBubbleDone, { opacity: completeProgress, transform: [{ scale: checkScale }] }]}>
-                  <Ionicons name="checkmark" size={34} color={finishing ? WHITE : GREEN} />
-                </Animated.View>
+                  <Animated.View style={[styles.checkBubble, finishing && styles.checkBubbleDone, { opacity: completeProgress, transform: [{ scale: checkScale }] }] }>
+                    <Ionicons name="checkmark" size={34} color={finishing ? WHITE : GREEN} />
+                  </Animated.View>
               </Pressable>
             )}
           </Animated.View>
@@ -276,6 +308,26 @@ export default function TaskScreen() {
     [tasks]
   );
 
+  const sections = useMemo(() => {
+    const todayKey = dateKey(new Date());
+    const tomorrowKey = dateKey(addDays(new Date(), 1));
+    const groups = { Today: [], Tomorrow: [], 'This Week': [] };
+
+    visibleTasks.forEach((task) => {
+      if (task.date === todayKey) groups.Today.push(task);
+      else if (task.date === tomorrowKey) groups.Tomorrow.push(task);
+      else {
+        groups['This Week'].push(task);
+      }
+    });
+
+    const out = [];
+    if (groups.Today.length) out.push({ title: 'Today', data: groups.Today });
+    if (groups.Tomorrow.length) out.push({ title: 'Tomorrow', data: groups.Tomorrow });
+    if (groups['This Week'].length) out.push({ title: 'This Week', data: groups['This Week'] });
+    return out;
+  }, [visibleTasks]);
+
   const resetForm = () => {
     setTaskName('');
     setDateOption('today');
@@ -323,9 +375,9 @@ export default function TaskScreen() {
   return (
     <View style={styles.root}>
       <Animated.View style={[styles.contentMotion, pageMotion]}>
-        <FlatList
+        <SectionList
           contentContainerStyle={styles.container}
-          data={visibleTasks}
+          sections={sections}
           keyExtractor={(item) => item.id}
           ListHeaderComponent={
             <View style={styles.header}>
@@ -333,6 +385,9 @@ export default function TaskScreen() {
               <Text style={styles.subtitle}>{taskCountLabel(visibleTasks.length)}</Text>
             </View>
           }
+          renderSectionHeader={({ section: { title } }) => (
+            <Text style={styles.sectionHeader}>{title}</Text>
+          )}
           renderItem={({ item }) => (
             <TaskCard
               active={activeCompleteId === item.id}
@@ -388,6 +443,8 @@ export default function TaskScreen() {
             <View style={styles.timeRow}>
               {TIME_OPTIONS.map((option) => {
                 const selected = timeOption === option.key;
+                const bg = selected ? option.selected : INK;
+                const glyphColor = isColorDark(bg) ? WHITE : INK;
                 return (
                   <Pressable
                     accessibilityLabel={option.key}
@@ -396,12 +453,12 @@ export default function TaskScreen() {
                     style={[
                       styles.timeButton,
                       {
-                        backgroundColor: selected ? option.selected : INK,
-                        borderColor: selected ? option.selected : INK,
+                        backgroundColor: bg,
+                        borderColor: bg,
                       },
                     ]}
                   >
-                    <Ionicons name={option.icon} size={22} color={WHITE} />
+                      <Text style={[styles.timeGlyph, { color: glyphColor }]}>{option.glyph}</Text>
                   </Pressable>
                 );
               })}
@@ -442,24 +499,17 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     borderWidth: 1,
     flexDirection: 'row',
-    minHeight: 96,
+    minHeight: 82,
     overflow: 'hidden',
     paddingHorizontal: 18,
-    paddingVertical: 17,
+    paddingVertical: 12,
   },
-  taskMain: { flex: 1, gap: 14 },
-  taskName: { color: INK, fontSize: 18, fontWeight: '800', lineHeight: 24 },
-  taskMeta: { alignItems: 'center', flexDirection: 'row', gap: 10 },
-  datePill: {
-    backgroundColor: 'rgba(255,255,255,0.7)',
-    borderColor: 'rgba(13,13,13,0.08)',
-    borderRadius: 30,
-    borderWidth: 1,
-    color: MUTED,
-    fontSize: 12,
-    fontWeight: '700',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+  taskMain: { alignItems: 'center', flex: 1, flexDirection: 'row', gap: 12 },
+  taskName: { color: INK, flex: 1, fontSize: 18, fontWeight: '800', lineHeight: 22 },
+  taskMeta: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
   },
   checkHitbox: {
     ...StyleSheet.absoluteFillObject,
@@ -470,15 +520,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: WHITE,
     borderColor: '#E2E2DA',
-    borderRadius: 32,
+    borderRadius: 34,
     borderWidth: 1,
-    height: 64,
+    height: 68,
     justifyContent: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.08,
     shadowRadius: 14,
-    width: 64,
+    width: 68,
   },
   checkBubbleDone: {
     backgroundColor: GREEN,
@@ -507,6 +557,7 @@ const styles = StyleSheet.create({
   modalRoot: { alignItems: 'center', flex: 1, justifyContent: 'center', padding: 24 },
   modalScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(13,13,13,0.28)' },
   modalCard: {
+    alignItems: 'center',
     backgroundColor: WHITE,
     borderColor: BORDER,
     borderRadius: 24,
@@ -528,10 +579,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     marginBottom: 18,
+    width: '100%',
     paddingHorizontal: 16,
     paddingVertical: 14,
   },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 18 },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'center', marginBottom: 18, width: '100%' },
   dateChip: {
     backgroundColor: WHITE,
     borderColor: INK,
@@ -543,19 +595,32 @@ const styles = StyleSheet.create({
   dateChipSelected: { backgroundColor: INK },
   dateChipText: { color: INK, fontSize: 12, fontWeight: '800' },
   dateChipTextSelected: { color: WHITE },
-  timeRow: { flexDirection: 'row', gap: 10, marginBottom: 22 },
+  timeRow: { flexDirection: 'row', gap: 10, justifyContent: 'center', marginBottom: 22, width: '100%' },
   timeButton: {
     alignItems: 'center',
     borderRadius: 22,
     borderWidth: 1,
-    height: 44,
+    height: 40,
     justifyContent: 'center',
-    width: 44,
+    width: 40,
   },
+
+  timeBadge: {
+    alignItems: 'center',
+    borderRadius: 18,
+    borderWidth: 1,
+    height: 36,
+    justifyContent: 'center',
+    width: 36,
+  },
+  timeGlyph: { fontSize: 20, fontWeight: '900' },
+  sectionHeader: { color: MUTED, fontSize: 13, fontWeight: '900', marginBottom: 8, marginTop: 12 },
+
   addButton: {
     alignItems: 'center',
     backgroundColor: INK,
     borderRadius: 34,
+    width: '100%',
     paddingVertical: 15,
   },
   addButtonPressed: { opacity: 0.8 },

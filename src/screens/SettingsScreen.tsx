@@ -76,8 +76,8 @@ export default function SettingsScreen() {
   };
 
   const handleDismissError = async () => {
-    await dismissGeminiErrorCard();
     setGeminiError(null);
+    await dismissGeminiErrorCard();
   };
 
   if (loading) {
@@ -226,3 +226,4 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
 });
+
