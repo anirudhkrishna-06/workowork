@@ -3,7 +3,7 @@ export type RootStackParamList = {
   Signup: undefined;
   Onboarding: undefined;
   Home: undefined;
-  AddLog: undefined;
+  AddLog: { selectedDate?: string } | undefined;
   Dashboard: undefined;
   Report: undefined;
   Tasks: undefined;

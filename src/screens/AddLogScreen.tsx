@@ -43,6 +43,15 @@ const tokens = {
 
 type Props = NativeStackScreenProps<RootStackParamList, 'AddLog'>;
 
+function parseLocalDateKey(dateKey: string) {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function formatDateLabel(date: Date) {
+  return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
 // ─── Pill Score Selector ───────────────────────────────────────────────────────
 function PillScore({
   label,
@@ -239,8 +248,10 @@ const dividerStyles = StyleSheet.create({
 });
 
 // ─── Main Screen ───────────────────────────────────────────────────────────────
-export default function AddLogScreen({ navigation }: Props) {
+export default function AddLogScreen({ navigation, route }: Props) {
   const { profile, session } = useAuth();
+  const selectedDate = route.params?.selectedDate;
+  const entryDate = selectedDate ? parseLocalDateKey(selectedDate) : new Date();
   const [task, setTask] = useState('');
   const [learning, setLearning] = useState('');
   const [challenge, setChallenge] = useState('');
@@ -264,7 +275,7 @@ export default function AddLogScreen({ navigation }: Props) {
     if (!session?.user.id) return;
 
     if (!task.trim()) {
-      Alert.alert('One thing needed', 'Add at least what you worked on today.');
+      Alert.alert('One thing needed', 'Add at least what you worked on for this day.');
       return;
     }
 
@@ -274,6 +285,7 @@ export default function AddLogScreen({ navigation }: Props) {
       .from('daily_logs')
       .insert({
         user_id: session.user.id,
+        created_at: entryDate.toISOString(),
         task: task.trim(),
         learning: learning.trim(),
         challenge: challenge.trim(),
@@ -328,7 +340,7 @@ export default function AddLogScreen({ navigation }: Props) {
           <View style={s.headerTopRow}>
             <View style={s.datePill}>
               <Text style={s.datePillText}>
-                {new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                {formatDateLabel(entryDate)}
               </Text>
             </View>
             {/* Subtle progress ring */}

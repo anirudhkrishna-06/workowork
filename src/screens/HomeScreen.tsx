@@ -72,6 +72,19 @@ function localDateKey(dateInput: Date | string) {
   return `${y}-${m}-${day}`;
 }
 
+function parseLocalDateKey(dateKey: string) {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function formatCalendarDate(dateKey: string) {
+  return parseLocalDateKey(dateKey).toLocaleDateString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
 function getMonthMatrix(year: number, month: number) {
   const first = new Date(year, month, 1);
   const last = new Date(year, month + 1, 0);
@@ -128,6 +141,11 @@ export default function HomeScreen({ navigation }: Props) {
     setRefreshing(true);
     await loadLogs();
     setRefreshing(false);
+  };
+
+  const handleAddLogForDate = () => {
+    if (!selectedDate) return;
+    navigation.navigate('AddLog', { selectedDate });
   };
 
   const countsByDate = useMemo(() => {
@@ -309,6 +327,15 @@ export default function HomeScreen({ navigation }: Props) {
           </View>
         )}
 
+        {selectedDate && (
+          <Pressable
+            onPress={handleAddLogForDate}
+            style={({ pressed }) => [styles.calendarActionButton, pressed && styles.addButtonPressed]}
+          >
+            <Text style={styles.calendarActionButtonText}>+ Add Log for {formatCalendarDate(selectedDate)}</Text>
+          </Pressable>
+        )}
+
         <View style={styles.sectionHeaderRow}>
           <Text style={styles.sectionTitle}>{activeActivity ? 'Ongoing Tasks' : 'Growth Actions'}</Text>
           <View style={styles.sectionDivider} />
@@ -479,6 +506,8 @@ const styles = StyleSheet.create({
   dayPressed: { opacity: 0.78 },
   dateNote: { marginHorizontal: 24, marginTop: 12, backgroundColor: '#FEFDF9', borderRadius: 18, padding: 12, borderWidth: 1, borderColor: BORDER },
   dateNoteText: { color: MUTED, fontSize: 13, fontWeight: '600' },
+  calendarActionButton: { marginHorizontal: 24, marginTop: 12, backgroundColor: INK, borderRadius: 28, alignItems: 'center', justifyContent: 'center', paddingVertical: 14 },
+  calendarActionButtonText: { color: WHITE, fontSize: 15, fontWeight: '700', letterSpacing: 0.2 },
   categoryGrid: { marginHorizontal: 24, gap: 10 },
   growthActionShell: {
     backgroundColor: WHITE,
