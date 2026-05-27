@@ -6,6 +6,10 @@ import { DailyLogWithAnalysis, GeneratedWeeklyReflection, Profile } from '../typ
 function payloadFromReflection(reflection: GeneratedWeeklyReflection) {
   return {
     weekly_summary: reflection.weekly_summary,
+    tasks_accomplishments: reflection.tasks_accomplishments,
+    tools_technologies: reflection.takeaways,
+    challenges_blockers: reflection.challenges_blockers,
+    goals_next_week: reflection.goals_next_week,
     improvements: reflection.improvements,
     recurring_weaknesses: reflection.recurring_weaknesses,
     suggestions: reflection.suggestions,
@@ -73,13 +77,14 @@ export async function processWeeklyReflectionIfDue(profile: Profile | null, user
   );
 
   try {
-    const reflection = await generateWeeklyReflection(profile, orderedLogs);
+    const reflection = await generateWeeklyReflection(profile, orderedLogs, weekNumber);
 
     await supabase
       .from('weekly_reflections')
       .update({
         ...(storedReportPayload ?? {}),
         ...payloadFromReflection(reflection),
+        created_at: new Date().toISOString(),
         status: 'completed',
       })
       .eq('user_id', userId)

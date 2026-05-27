@@ -105,6 +105,10 @@ export type WeeklyDaySummary = {
 
 export type GeneratedWeeklyReflection = {
   weekly_summary: string;
+  tasks_accomplishments: string[];
+  takeaways: string[];
+  challenges_blockers: string[];
+  goals_next_week: string[];
   improvements: string[];
   recurring_weaknesses: string[];
   suggestions: string[];

@@ -97,8 +97,6 @@ export default function ReportScreen() {
 
   const nextWeek = nextUngeneratedWeek(profile, logs, weeklyReports);
   const weeks = availableWeekNumbers(profile, logs, weeklyReports);
-  const completedWeeks = new Set(weeklyReports.filter((report) => report.status === 'completed').map((report) => report.week_number));
-  const weeksNeedingReports = weeks.filter((week) => !completedWeeks.has(week));
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -138,20 +136,6 @@ export default function ReportScreen() {
         </View>
       )}
 
-      {weeksNeedingReports.length > 0 && (
-        <View style={styles.weekPicker}>
-          {weeksNeedingReports.map((week) => (
-            <Pressable
-              key={week}
-              disabled={generatingWeek !== null}
-              onPress={() => handleGenerateWeek(week)}
-              style={({ pressed }) => [styles.weekChip, pressed && styles.weekChipPressed]}
-            >
-              <Text style={styles.weekChipText}>Week {week}</Text>
-            </Pressable>
-          ))}
-        </View>
-      )}
     </ScrollView>
   );
 }
@@ -176,6 +160,18 @@ function formatReportDate(value?: string | null) {
   return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(value));
 }
 
+function formatGeneratedAt(value?: string | null) {
+  if (!value) return 'Generated recently';
+
+  return `Generated ${new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(value))}`;
+}
+
 function WeeklyReportCard({
   report,
   generating,
@@ -189,8 +185,6 @@ function WeeklyReportCard({
   onRegenerate: () => void;
   onExport: () => void;
 }) {
-  const dayCount = Array.isArray(report.day_summaries) ? report.day_summaries.length : 0;
-
   return (
     <View style={styles.weekCard}>
       <View style={styles.weekCardTop}>
@@ -202,8 +196,7 @@ function WeeklyReportCard({
           <Text style={styles.weekBadgeText}>{report.status}</Text>
         </View>
       </View>
-      <Text style={styles.bodyText}>{report.weekly_summary || 'Weekly report generated from daily entries.'}</Text>
-      <Text style={styles.weekMeta}>{report.log_count} logs / {dayCount} day summaries</Text>
+      <Text style={styles.weekMeta}>{formatGeneratedAt(report.created_at)}</Text>
       <View style={styles.weekActions}>
         <Pressable disabled={generating} onPress={onRegenerate} style={styles.secondaryButton}>
           {generating ? <ActivityIndicator color={colors.primary} /> : <Text style={styles.secondaryButtonText}>Regenerate</Text>}
@@ -256,13 +249,9 @@ const styles = StyleSheet.create({
   weekBadgeText: { color: colors.muted, fontSize: 11, fontWeight: '800', textTransform: 'capitalize' },
   weekCard: { backgroundColor: '#FFFFFF', borderColor: colors.border, borderRadius: 14, borderWidth: 1, padding: 16 },
   weekCardTop: { alignItems: 'flex-start', flexDirection: 'row', justifyContent: 'space-between', gap: 12, marginBottom: 12 },
-  weekChip: { borderColor: colors.border, borderRadius: 99, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 8 },
-  weekChipPressed: { backgroundColor: colors.surface },
-  weekChipText: { color: colors.primary, fontSize: 13, fontWeight: '700' },
   weekDate: { color: colors.muted, fontSize: 12, marginTop: 3 },
   weekHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', gap: 12, marginTop: 24 },
   weekList: { gap: 12, marginTop: 14 },
-  weekMeta: { color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: 10 },
-  weekPicker: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 14 },
+  weekMeta: { color: colors.muted, fontSize: 11, fontWeight: '700', marginTop: 4 },
   weekTitle: { color: colors.primary, fontSize: 18, fontWeight: '800' },
 });

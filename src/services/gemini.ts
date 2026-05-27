@@ -63,6 +63,10 @@ function normalizeWeeklyReflection(value: unknown): GeneratedWeeklyReflection {
 
   return {
     weekly_summary: typeof record.weekly_summary === 'string' ? record.weekly_summary.trim() : '',
+    tasks_accomplishments: asStringArray(record.tasks_accomplishments),
+    takeaways: asStringArray(record.takeaways),
+    challenges_blockers: asStringArray(record.challenges_blockers),
+    goals_next_week: asStringArray(record.goals_next_week),
     improvements: asStringArray(record.improvements),
     recurring_weaknesses: asStringArray(record.recurring_weaknesses),
     suggestions: asStringArray(record.suggestions),
@@ -192,7 +196,8 @@ Tomorrow plan: ${log.tomorrow_plan}
 
 export const generateWeeklyReflection = async (
   profile: Profile | null,
-  logs: DailyLogWithAnalysis[]
+  logs: DailyLogWithAnalysis[],
+  weekNumber?: number
 ): Promise<GeneratedWeeklyReflection> => {
   const apiKey = await getGeminiApiKey();
 
@@ -212,11 +217,14 @@ Work done: ${log.task}
 Learning: ${log.learning}
 Challenges: ${log.challenge}
 Solutions: ${log.solution}
+Tomorrow plan: ${log.tomorrow_plan}
 Productivity: ${log.productivity}/5 (${scoreToPercent(log.productivity)}%)
 Confidence: ${log.confidence}/5 (${scoreToPercent(log.confidence)}%)
 Stress: ${log.stress}/5 (${scoreToPercent(log.stress)}%)
 AI summary: ${analysis?.professional_summary ?? 'Not available'}
+AI skills / growth signals: ${(analysis?.skills ?? []).join(', ') || 'Not available'}
 AI weaknesses: ${(analysis?.weaknesses ?? []).join(', ') || 'Not available'}
+AI suggestions: ${(analysis?.suggestions ?? []).join(', ') || 'Not available'}
 Mentor feedback: ${feedback.map((item) => item.feedback).join(' | ') || 'None'}
 `;
     })
@@ -229,16 +237,33 @@ Return ONLY valid JSON. No markdown. No commentary.
 
 JSON schema:
 {
-  "weekly_summary": "A concise paragraph describing the user's weekly growth.",
+  "weekly_summary": "One polished corporate paragraph only.",
+  "tasks_accomplishments": ["Crisp task/accomplishment bullet"],
+  "takeaways": [
+    "TAKEAWAY: Personal weekly correction or learning",
+    "TOP_LP: Leadership Principle name - evidence from the week",
+    "BOTTOM_LP: Leadership Principle name - focus area from the week"
+  ],
+  "challenges_blockers": ["Specific challenge/blocker bullet"],
+  "goals_next_week": ["Specific next-week goal bullet"],
   "improvements": ["Area improved"],
   "recurring_weaknesses": ["Recurring weakness"],
   "suggestions": ["Specific suggestion for next week"]
 }
 
 Reflection rules:
+- Generate every section from the supplied weekly logs and existing daily AI analysis. Use all available days in the weekly block. Do not use filler, vague praise, invented technologies, invented outcomes, or generic internship language.
+- weekly_summary must be one polished executive paragraph only. Do not start with a formula such as "Week ${weekNumber ?? 'X'} covered ${logs.length} log entries." Write it like a real manager-ready progress summary: crisp opening, then what the individual learned, where they lagged, where they improved, and how the week reflects growth. Keep it professional, precise, and commendable.
+- For weekly_summary, draw heavily from each day's learning, AI skills / growth signals, AI weaknesses, AI suggestions, score patterns, and solved challenges. Do not make sub-points.
+- tasks_accomplishments must contain 5-10 crisp task definitions derived from the daily work summaries and raw "Work done" fields. Group tiny items into meaningful workstreams. Use short, corporate, outcome-oriented phrasing.
+- takeaways must begin with 3-5 TAKEAWAY entries about what the individual learned to correct or carry forward.
+- takeaways must also include exactly 3 TOP_LP entries for the strongest LPs demonstrated and exactly 3 BOTTOM_LP entries for the weakest LPs or focus areas. Use only these LP names: Customer Obsession, Ownership, Invent and Simplify, Are Right A Lot, Learn and Be Curious, Hire and Develop the Best, Insist on the Highest Standards, Think Big, Bias for Action, Frugality, Earn Trust, Dive Deep, Have Backbone; Disagree and Commit, Deliver Results.
+- Do not write "Amazon" anywhere. Use the TOP_LP / BOTTOM_LP prefixes exactly so the report can highlight the top 3 and bottom 3 LPs.
+- challenges_blockers must contain 3-6 crisp, real challenges faced by the individual. Remove weak, duplicate, exaggerated, or unnecessary challenges.
+- goals_next_week must contain 4-7 motivating, professional goals created from areas to grow, weaknesses, suggestions, and tomorrow plans. Do not repeat completed work from this week as a goal.
 - Treat productivity, confidence, and stress as 1-5 ratings and use the percentage beside each score for interpretation.
 - Preserve technical specificity when logs mention implementation, tools, debugging, architecture, analysis, or delivery. Use supportive non-technical coaching when logs are primarily emotional.
-- Tie improvements, recurring weaknesses, and suggestions to Amazon Leadership Principles where relevant, especially Ownership, Learn and Be Curious, Dive Deep, Bias for Action, Insist on the Highest Standards, Earn Trust, and Deliver Results.
+- Keep bullets concise but meaningful. Prefer action language, measurable direction, and professional phrasing.
 
 User context:
 Name: ${profile?.name ?? 'Unknown'}
@@ -246,7 +271,7 @@ Role: ${profile?.role ?? 'Intern'}
 Company: ${profile?.company ?? 'Unknown'}
 Goal: ${profile?.goal ?? 'Not provided'}
 
-Seven-log block:
+Weekly log block:
 ${logText}
 `;
 

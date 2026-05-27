@@ -1,3 +1,4 @@
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { Share } from 'react-native';
@@ -19,6 +20,81 @@ function listHtml(items?: string[] | null) {
   }
 
   return `<ul class="clean-list">${items.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`;
+}
+
+function splitLpItem(value: string, prefix: string) {
+  const cleaned = value.replace(prefix, '').trim();
+  const [name, ...rest] = cleaned.split(/\s+-\s+/);
+
+  return {
+    name: name?.trim() || 'LP',
+    detail: rest.join(' - ').trim(),
+  };
+}
+
+function takeawaysHtml(items?: string[] | null) {
+  if (!items?.length) {
+    return '<p class="muted">Not available.</p>';
+  }
+
+  const takeaways = items
+    .filter(
+      (item) =>
+        !item.startsWith('TOP_LP:') &&
+        !item.startsWith('BOTTOM_LP:') &&
+        !item.startsWith('GOOD_LP:') &&
+        !item.startsWith('POOR_LP:')
+    )
+    .map((item) => item.replace(/^TAKEAWAY:\s*/i, '').trim())
+    .filter(Boolean);
+  const topLps = items
+    .filter((item) => item.startsWith('TOP_LP:') || item.startsWith('GOOD_LP:'))
+    .map((item) => splitLpItem(item, item.startsWith('TOP_LP:') ? 'TOP_LP:' : 'GOOD_LP:'))
+    .slice(0, 3);
+  const bottomLps = items
+    .filter((item) => item.startsWith('BOTTOM_LP:') || item.startsWith('POOR_LP:'))
+    .map((item) => splitLpItem(item, item.startsWith('BOTTOM_LP:') ? 'BOTTOM_LP:' : 'POOR_LP:'))
+    .slice(0, 3);
+
+  return `
+    ${listHtml(takeaways)}
+    <div class="lp-grid">
+      <div class="lp-panel lp-good">
+        <h3>Top 3 LPs</h3>
+        ${
+          topLps.length
+            ? topLps
+                .map(
+                  (item) => `
+                    <div class="lp-pill">
+                      <strong>${escapeHtml(item.name)}</strong>
+                      ${item.detail ? `<span>${escapeHtml(item.detail)}</span>` : ''}
+                    </div>
+                  `
+                )
+                .join('')
+            : '<p class="muted">Not available.</p>'
+        }
+      </div>
+      <div class="lp-panel lp-poor">
+        <h3>Bottom 3 LPs</h3>
+        ${
+          bottomLps.length
+            ? bottomLps
+                .map(
+                  (item) => `
+                    <div class="lp-pill">
+                      <strong>${escapeHtml(item.name)}</strong>
+                      ${item.detail ? `<span>${escapeHtml(item.detail)}</span>` : ''}
+                    </div>
+                  `
+                )
+                .join('')
+            : '<p class="muted">Not available.</p>'
+        }
+      </div>
+    </div>
+  `;
 }
 
 function reportStyles() {
@@ -169,6 +245,42 @@ function reportStyles() {
       gap: 14px;
       grid-template-columns: repeat(2, 1fr);
     }
+    .lp-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(2, 1fr);
+      margin-top: 12px;
+    }
+    .lp-panel {
+      border-radius: 14px;
+      padding: 12px;
+    }
+    .lp-good {
+      background: #F1FAF3;
+      border: 1px solid #B9E5C1;
+    }
+    .lp-poor {
+      background: #FFF1F0;
+      border: 1px solid #F4B8B1;
+    }
+    .lp-pill {
+      background: rgba(255,255,255,0.66);
+      border-radius: 10px;
+      margin-top: 8px;
+      padding: 9px 10px;
+    }
+    .lp-pill strong {
+      color: #161615;
+      display: block;
+      font-size: 12px;
+    }
+    .lp-pill span {
+      color: #4B4B46;
+      display: block;
+      font-size: 11.5px;
+      line-height: 1.45;
+      margin-top: 3px;
+    }
     .day-card {
       background: #FBFAF5;
       border: 1px solid #E7E5DD;
@@ -218,6 +330,22 @@ function formatReportDate(value?: string | null) {
   }).format(new Date(value));
 }
 
+function safeFilePart(value?: string | null) {
+  return (value || '')
+    .trim()
+    .replace(/[^a-z0-9]+/gi, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40);
+}
+
+function reportPdfFileName(report: WeeklyReflection, profile: Profile | null) {
+  const name = safeFilePart(profile?.name) || 'WorkoWork';
+  const week = `Week-${report.week_number}`;
+  const period = report.period_end ? new Date(report.period_end).toISOString().slice(0, 10) : 'Report';
+
+  return `${name}-${week}-Weekly-Progress-Report-${period}.pdf`;
+}
+
 export function weeklyReportToHtml(report: WeeklyReflection, profile: Profile | null) {
   const daySummaries = Array.isArray(report.day_summaries) ? report.day_summaries : [];
 
@@ -247,11 +375,11 @@ export function weeklyReportToHtml(report: WeeklyReflection, profile: Profile | 
 
       ${sectionHtml('01', 'Executive Summary', `<div class="summary-box"><p>${escapeHtml(report.weekly_summary ?? 'Weekly report generated from daily entries.')}</p></div>`)}
       ${sectionHtml('02', 'Tasks & Accomplishments', listHtml(report.tasks_accomplishments))}
+      ${sectionHtml('03', 'Takeaways', takeawaysHtml(report.tools_technologies))}
       <div class="two-col">
-        ${sectionHtml('03', 'Tools & Technologies Used', listHtml(report.tools_technologies))}
         ${sectionHtml('04', 'Challenges & Blockers', listHtml(report.challenges_blockers?.length ? report.challenges_blockers : report.recurring_weaknesses))}
+        ${sectionHtml('05', 'Goals for Next Week', listHtml(report.goals_next_week?.length ? report.goals_next_week : report.suggestions))}
       </div>
-      ${sectionHtml('05', 'Goals for Next Week', listHtml(report.goals_next_week?.length ? report.goals_next_week : report.suggestions))}
       <section class="section">
         <div class="section-title-row">
           <span class="section-number">06</span>
@@ -285,9 +413,15 @@ export async function exportWeeklyReportAsPdf(report: WeeklyReflection, profile:
     html: weeklyReportToHtml(report, profile),
     base64: false,
   });
+  const fileName = reportPdfFileName(report, profile);
+  const exportUri = FileSystem.cacheDirectory ? `${FileSystem.cacheDirectory}${fileName}` : uri;
+
+  if (exportUri !== uri) {
+    await FileSystem.copyAsync({ from: uri, to: exportUri });
+  }
 
   if (await Sharing.isAvailableAsync()) {
-    await Sharing.shareAsync(uri, {
+    await Sharing.shareAsync(exportUri, {
       dialogTitle: `Export Week ${report.week_number} Report`,
       mimeType: 'application/pdf',
       UTI: 'com.adobe.pdf',
@@ -297,6 +431,6 @@ export async function exportWeeklyReportAsPdf(report: WeeklyReflection, profile:
 
   await Share.share({
     title: `Week ${report.week_number} Report`,
-    message: uri,
+    message: exportUri,
   });
 }

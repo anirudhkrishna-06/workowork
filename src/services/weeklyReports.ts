@@ -1,4 +1,5 @@
 import { DailyLogWithAnalysis, Profile, WeeklyDaySummary, WeeklyReflection } from '../types/workowork';
+import { generateWeeklyReflection } from './gemini';
 import { supabase } from './supabase';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -100,7 +101,11 @@ export function buildWeeklyPayload({
 
   const analyses = logs.map(getAnalysis).filter(Boolean);
   const tasks = uniq(logs.map((log) => log.task), 8);
-  const tools = uniq(analyses.flatMap((analysis) => analysis?.skills ?? []), 10);
+  const takeaways = uniq([
+    ...logs.map((log) => log.learning),
+    ...analyses.flatMap((analysis) => analysis?.skills ?? []),
+    ...analyses.flatMap((analysis) => analysis?.suggestions ?? []),
+  ], 10);
   const challenges = uniq([
     ...logs.map((log) => log.challenge),
     ...analyses.flatMap((analysis) => analysis?.weaknesses ?? []),
@@ -122,7 +127,7 @@ export function buildWeeklyPayload({
     period_end: periodEnd.toISOString(),
     weekly_summary: weeklySummary,
     tasks_accomplishments: tasks,
-    tools_technologies: tools,
+    tools_technologies: takeaways,
     challenges_blockers: challenges,
     goals_next_week: goals,
     day_summaries: [...dayMap.values()],
@@ -144,7 +149,7 @@ export async function generateStoredWeeklyReport({
 }) {
   const { data: allLogs, error: allLogsError } = await supabase
     .from('daily_logs')
-    .select('*, ai_analysis(*)')
+    .select('*, ai_analysis(*), mentor_feedback(*)')
     .eq('user_id', userId)
     .order('created_at', { ascending: true });
 
@@ -161,7 +166,7 @@ export async function generateStoredWeeklyReport({
     throw new Error(`No log entries found for week ${weekNumber}.`);
   }
 
-  const payload = buildWeeklyPayload({
+  const basePayload = buildWeeklyPayload({
     profile,
     logs: weekLogs,
     weekNumber,
@@ -169,12 +174,32 @@ export async function generateStoredWeeklyReport({
     periodEnd: end,
   });
 
+  const reflection = await generateWeeklyReflection(profile, weekLogs, weekNumber);
+  const payload = {
+    ...basePayload,
+    weekly_summary: reflection.weekly_summary || basePayload.weekly_summary,
+    tasks_accomplishments: reflection.tasks_accomplishments.length
+      ? reflection.tasks_accomplishments
+      : basePayload.tasks_accomplishments,
+    tools_technologies: reflection.takeaways.length ? reflection.takeaways : basePayload.tools_technologies,
+    challenges_blockers: reflection.challenges_blockers.length
+      ? reflection.challenges_blockers
+      : basePayload.challenges_blockers,
+    goals_next_week: reflection.goals_next_week.length ? reflection.goals_next_week : basePayload.goals_next_week,
+    improvements: reflection.improvements.length ? reflection.improvements : basePayload.improvements,
+    recurring_weaknesses: reflection.recurring_weaknesses.length
+      ? reflection.recurring_weaknesses
+      : basePayload.recurring_weaknesses,
+    suggestions: reflection.suggestions.length ? reflection.suggestions : basePayload.suggestions,
+  };
+
   const { data, error } = await supabase
     .from('weekly_reflections')
     .upsert(
       {
         user_id: userId,
         ...payload,
+        created_at: new Date().toISOString(),
       },
       { onConflict: 'user_id,week_number' }
     )
