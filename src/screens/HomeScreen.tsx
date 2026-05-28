@@ -6,6 +6,7 @@ import {
   Animated,
   Dimensions,
   FlatList,
+  GestureResponderEvent,
   Modal,
   Pressable,
   RefreshControl,
@@ -44,6 +45,13 @@ type GrowthCategory = {
   activities: GrowthActivity[];
 };
 
+type CalendarDayButtonProps = {
+  backgroundColor: string;
+  dateNumber: number;
+  isSelected: boolean;
+  onPress: () => void;
+};
+
 const activityData = require('../../assets/data/activities.json') as { categories: GrowthCategory[] };
 
 const INK = '#111110';
@@ -70,19 +78,6 @@ function localDateKey(dateInput: Date | string) {
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
-}
-
-function parseLocalDateKey(dateKey: string) {
-  const [year, month, day] = dateKey.split('-').map(Number);
-  return new Date(year, month - 1, day);
-}
-
-function formatCalendarDate(dateKey: string) {
-  return parseLocalDateKey(dateKey).toLocaleDateString('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-  });
 }
 
 function getMonthMatrix(year: number, month: number) {
@@ -116,6 +111,8 @@ export default function HomeScreen({ navigation }: Props) {
   const [selectedActivity, setSelectedActivity] = useState<(GrowthActivity & { category: string }) | null>(null);
   const [activeActivity, setActiveActivity] = useState<(GrowthActivity & { category: string }) | null>(null);
   const [completedTitle, setCompletedTitle] = useState<string | null>(null);
+  const calendarBounds = React.useRef({ y: 0, height: 0 });
+  const scrollY = React.useRef(0);
 
   const loadLogs = useCallback(async () => {
     if (!session?.user.id) return;
@@ -143,9 +140,25 @@ export default function HomeScreen({ navigation }: Props) {
     setRefreshing(false);
   };
 
-  const handleAddLogForDate = () => {
+  const handleCalendarDatePress = (dateKey: string) => {
+    if (selectedDate === dateKey) {
+      navigation.navigate('AddLog', { selectedDate: dateKey });
+      return;
+    }
+
+    setSelectedDate(dateKey);
+  };
+
+  const handleScreenTouch = (event: GestureResponderEvent) => {
     if (!selectedDate) return;
-    navigation.navigate('AddLog', { selectedDate });
+
+    const contentY = event.nativeEvent.pageY + scrollY.current;
+    const { y, height } = calendarBounds.current;
+    const isInsideCalendar = contentY >= y && contentY <= y + height;
+
+    if (!isInsideCalendar) {
+      setSelectedDate(null);
+    }
   };
 
   const countsByDate = useMemo(() => {
@@ -157,7 +170,6 @@ export default function HomeScreen({ navigation }: Props) {
     return map;
   }, [logs]);
 
-  const selectedDateCount = selectedDate ? countsByDate.get(selectedDate) ?? 0 : 0;
   const maxCount = useMemo(() => Math.max(1, ...Array.from(countsByDate.values(), (value) => value || 0)), [countsByDate]);
   const weeklyLogs = logs.slice(0, 7);
   const weeklyProductivityPercent = averageScorePercent(weeklyLogs.map((log) => log.productivity));
@@ -234,18 +246,13 @@ export default function HomeScreen({ navigation }: Props) {
                 const isSelected = selectedDate === key;
 
                 return (
-                  <Pressable
+                  <CalendarDayButton
                     key={key}
-                    onPress={() => setSelectedDate(isSelected ? null : key)}
-                    style={({ pressed }) => [
-                      styles.daySquare,
-                      { backgroundColor: bg },
-                      isSelected && styles.daySelected,
-                      pressed && styles.dayPressed,
-                    ]}
-                  >
-                    <Text style={styles.dayLabel}>{day.getDate()}</Text>
-                  </Pressable>
+                    backgroundColor={bg}
+                    dateNumber={day.getDate()}
+                    isSelected={isSelected}
+                    onPress={() => handleCalendarDatePress(key)}
+                  />
                 );
               })}
             </View>
@@ -260,6 +267,11 @@ export default function HomeScreen({ navigation }: Props) {
       <Animated.ScrollView
         style={pageMotion}
         contentContainerStyle={styles.scrollContent}
+        onScroll={(event) => {
+          scrollY.current = event.nativeEvent.contentOffset.y;
+        }}
+        onTouchStart={handleScreenTouch}
+        scrollEventThrottle={16}
         refreshControl={<RefreshControl onRefresh={handleRefresh} refreshing={refreshing} tintColor={INK} />}
         showsVerticalScrollIndicator={false}
       >
@@ -301,40 +313,32 @@ export default function HomeScreen({ navigation }: Props) {
           <Text style={styles.addButtonText}>+ Add Daily Log</Text>
         </Pressable>
 
-        <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionTitle}>Calendar</Text>
-          <View style={styles.sectionDivider} />
-        </View>
-
-        <FlatList
-          data={months}
-          horizontal
-          keyExtractor={(item) => `${item.year}-${item.month}`}
-          renderItem={renderMonth}
-          snapToInterval={SCREEN_WIDTH}
-          snapToAlignment="start"
-          decelerationRate="fast"
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.monthsRow}
-          ItemSeparatorComponent={() => <View style={{ width: 48 }} />}
-        />
-
-        {selectedDate && (
-          <View style={styles.dateNote}>
-            <Text style={styles.dateNoteText}>
-              {selectedDateCount ? `${selectedDateCount} log${selectedDateCount > 1 ? 's' : ''} on this day.` : 'No logs on this day.'}
-            </Text>
+        <View
+          onLayout={(event) => {
+            calendarBounds.current = {
+              y: event.nativeEvent.layout.y,
+              height: event.nativeEvent.layout.height,
+            };
+          }}
+        >
+          <View style={styles.sectionHeaderRow}>
+            <Text style={styles.sectionTitle}>Calendar</Text>
+            <View style={styles.sectionDivider} />
           </View>
-        )}
 
-        {selectedDate && (
-          <Pressable
-            onPress={handleAddLogForDate}
-            style={({ pressed }) => [styles.calendarActionButton, pressed && styles.addButtonPressed]}
-          >
-            <Text style={styles.calendarActionButtonText}>+ Add Log for {formatCalendarDate(selectedDate)}</Text>
-          </Pressable>
-        )}
+          <FlatList
+            data={months}
+            horizontal
+            keyExtractor={(item) => `${item.year}-${item.month}`}
+            renderItem={renderMonth}
+            snapToInterval={SCREEN_WIDTH}
+            snapToAlignment="start"
+            decelerationRate="fast"
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.monthsRow}
+            ItemSeparatorComponent={() => <View style={{ width: 48 }} />}
+          />
+        </View>
 
         <View style={styles.sectionHeaderRow}>
           <Text style={styles.sectionTitle}>{activeActivity ? 'Ongoing Tasks' : 'Growth Actions'}</Text>
@@ -374,6 +378,98 @@ export default function HomeScreen({ navigation }: Props) {
         onComplete={handleCompleteActivity}
       />
     </View>
+  );
+}
+
+function CalendarDayButton({ backgroundColor, dateNumber, isSelected, onPress }: CalendarDayButtonProps) {
+  const progress = React.useRef(new Animated.Value(isSelected ? 1 : 0)).current;
+  const pressScale = React.useRef(new Animated.Value(1)).current;
+
+  const animateSelection = React.useCallback(
+    (toValue: number, duration: number) => {
+      progress.stopAnimation();
+      Animated.timing(progress, {
+        toValue,
+        duration,
+        useNativeDriver: true,
+      }).start();
+    },
+    [progress]
+  );
+
+  React.useEffect(() => {
+    animateSelection(isSelected ? 1 : 0, isSelected ? 80 : 70);
+  }, [animateSelection, isSelected]);
+
+  const animatePress = (value: number) => {
+    Animated.spring(pressScale, {
+      toValue: value,
+      damping: 20,
+      mass: 0.6,
+      stiffness: 260,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const handlePressIn = () => {
+    animatePress(0.94);
+    if (!isSelected) {
+      animateSelection(1, 65);
+    }
+  };
+
+  const handlePressOut = () => {
+    animatePress(1);
+  };
+
+  const selectedScale = progress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 1.06],
+  });
+  const numberOpacity = progress.interpolate({
+    inputRange: [0, 0.45, 1],
+    outputRange: [1, 0, 0],
+  });
+  const plusOpacity = progress.interpolate({
+    inputRange: [0, 0.5, 1],
+    outputRange: [0, 0, 1],
+  });
+  const plusScale = progress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.55, 1],
+  });
+
+  return (
+    <Pressable
+      onPress={onPress}
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
+      style={styles.dayPressable}
+    >
+      <Animated.View
+        style={[
+          styles.daySquare,
+          {
+            backgroundColor,
+            transform: [{ scale: Animated.multiply(pressScale, selectedScale) }],
+          },
+        ]}
+      >
+        <Animated.View style={[styles.daySelectedOverlay, { opacity: progress }]} />
+        <Animated.Text style={[styles.dayLabel, { opacity: numberOpacity }]}>{dateNumber}</Animated.Text>
+        <Animated.Text
+          style={[
+            styles.dayPlusLabel,
+            {
+              opacity: plusOpacity,
+              transform: [{ scale: plusScale }],
+            },
+          ]}
+        >
+          +
+        </Animated.Text>
+      </Animated.View>
+    </Pressable>
   );
 }
 
@@ -500,14 +596,11 @@ const styles = StyleSheet.create({
   monthGrid: { gap: 6 },
   weekRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 6 },
   dayEmpty: { width: 34, height: 34 },
-  daySquare: { width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'transparent' },
+  dayPressable: { width: 34, height: 34 },
+  daySquare: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  daySelectedOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: INK },
   dayLabel: { fontSize: 12, color: INK, fontWeight: '700' },
-  daySelected: { borderColor: INK, borderWidth: 2 },
-  dayPressed: { opacity: 0.78 },
-  dateNote: { marginHorizontal: 24, marginTop: 12, backgroundColor: '#FEFDF9', borderRadius: 18, padding: 12, borderWidth: 1, borderColor: BORDER },
-  dateNoteText: { color: MUTED, fontSize: 13, fontWeight: '600' },
-  calendarActionButton: { marginHorizontal: 24, marginTop: 12, backgroundColor: INK, borderRadius: 28, alignItems: 'center', justifyContent: 'center', paddingVertical: 14 },
-  calendarActionButtonText: { color: WHITE, fontSize: 15, fontWeight: '700', letterSpacing: 0.2 },
+  dayPlusLabel: { color: WHITE, fontSize: 23, fontWeight: '500', lineHeight: 25, position: 'absolute' },
   categoryGrid: { marginHorizontal: 24, gap: 10 },
   growthActionShell: {
     backgroundColor: WHITE,
