@@ -46,10 +46,11 @@ type GrowthCategory = {
 };
 
 type CalendarDayButtonProps = {
+  dateKey: string;
   backgroundColor: string;
   dateNumber: number;
   isSelected: boolean;
-  onPress: () => void;
+  onPress: (dateKey: string) => void;
 };
 
 const activityData = require('../../assets/data/activities.json') as { categories: GrowthCategory[] };
@@ -111,8 +112,13 @@ export default function HomeScreen({ navigation }: Props) {
   const [selectedActivity, setSelectedActivity] = useState<(GrowthActivity & { category: string }) | null>(null);
   const [activeActivity, setActiveActivity] = useState<(GrowthActivity & { category: string }) | null>(null);
   const [completedTitle, setCompletedTitle] = useState<string | null>(null);
+  const selectedDateRef = React.useRef<string | null>(null);
   const calendarBounds = React.useRef({ y: 0, height: 0 });
   const scrollY = React.useRef(0);
+
+  React.useEffect(() => {
+    selectedDateRef.current = selectedDate;
+  }, [selectedDate]);
 
   const loadLogs = useCallback(async () => {
     if (!session?.user.id) return;
@@ -140,14 +146,14 @@ export default function HomeScreen({ navigation }: Props) {
     setRefreshing(false);
   };
 
-  const handleCalendarDatePress = (dateKey: string) => {
-    if (selectedDate === dateKey) {
+  const handleCalendarDatePress = React.useCallback((dateKey: string) => {
+    if (selectedDateRef.current === dateKey) {
       navigation.navigate('AddLog', { selectedDate: dateKey });
       return;
     }
 
     setSelectedDate(dateKey);
-  };
+  }, [navigation]);
 
   const handleScreenTouch = (event: GestureResponderEvent) => {
     if (!selectedDate) return;
@@ -248,10 +254,11 @@ export default function HomeScreen({ navigation }: Props) {
                 return (
                   <CalendarDayButton
                     key={key}
+                    dateKey={key}
                     backgroundColor={bg}
                     dateNumber={day.getDate()}
                     isSelected={isSelected}
-                    onPress={() => handleCalendarDatePress(key)}
+                    onPress={handleCalendarDatePress}
                   />
                 );
               })}
@@ -381,7 +388,13 @@ export default function HomeScreen({ navigation }: Props) {
   );
 }
 
-function CalendarDayButton({ backgroundColor, dateNumber, isSelected, onPress }: CalendarDayButtonProps) {
+const CalendarDayButton = React.memo(function CalendarDayButton({
+  dateKey,
+  backgroundColor,
+  dateNumber,
+  isSelected,
+  onPress,
+}: CalendarDayButtonProps) {
   const progress = React.useRef(new Animated.Value(isSelected ? 1 : 0)).current;
   const pressScale = React.useRef(new Animated.Value(1)).current;
 
@@ -398,7 +411,7 @@ function CalendarDayButton({ backgroundColor, dateNumber, isSelected, onPress }:
   );
 
   React.useEffect(() => {
-    animateSelection(isSelected ? 1 : 0, isSelected ? 80 : 70);
+    animateSelection(isSelected ? 1 : 0, isSelected ? 80 : 40);
   }, [animateSelection, isSelected]);
 
   const animatePress = (value: number) => {
@@ -441,7 +454,7 @@ function CalendarDayButton({ backgroundColor, dateNumber, isSelected, onPress }:
 
   return (
     <Pressable
-      onPress={onPress}
+      onPress={() => onPress(dateKey)}
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
       style={styles.dayPressable}
@@ -471,7 +484,7 @@ function CalendarDayButton({ backgroundColor, dateNumber, isSelected, onPress }:
       </Animated.View>
     </Pressable>
   );
-}
+});
 
 function GrowthActionCard({
   title,
